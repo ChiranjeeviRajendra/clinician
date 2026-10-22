@@ -1,11 +1,38 @@
-<script setup></script>
-
 <template>
-  <h1>You did it!</h1>
-  <p>
-    Visit <a href="https://vuejs.org/" target="_blank" rel="noopener">vuejs.org</a> to read the
-    documentation
-  </p>
+  <div class="app">
+    <!-- Fixed Navbar -->
+    <header class="navbar-container">
+      <Navbar />
+    </header>
+
+    <!-- Page Content -->
+    <main class="content">
+      <router-view />
+    </main>
+  </div>
 </template>
 
-<style scoped></style>
+<script setup>
+import Navbar from './components/Navbar.vue'
+</script>
+
+<style scoped>
+.app {
+  min-height: 100vh;
+}
+
+.navbar-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 64px;
+  z-index: 1000;
+}
+
+.content {
+  padding-top: 64px;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+</style>
