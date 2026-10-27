@@ -31,6 +31,9 @@ Vite requires port 5173 so it matches the backend's default email-link URL.
 
 - `/login`: sign in or switch to the create-account form. These call
   `POST /auth/login` and `POST /auth/register` respectively.
+- `/home`: default landing page after successful login, with links to Chat with AI,
+  Profile, and Faxes. The Clinician logo returns to this page.
+- `/profile` and `/faxes`: empty authenticated pages reserved for future work.
 - `/verify-email#token=...`: confirm the verification link sent after registration.
   Accounts must verify their email before login.
 - `/forgot-password` and `/reset-password#token=...`: request and complete a reset.

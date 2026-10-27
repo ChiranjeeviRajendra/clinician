@@ -107,7 +107,7 @@ async function submit() {
     } else {
       await auth.signIn(credentials)
       // Only redirect to a known local destination.
-      await router.replace({ name: 'chat' })
+      await router.replace({ name: 'home' })
     }
   } catch (failure) {
     error.value = failure.message

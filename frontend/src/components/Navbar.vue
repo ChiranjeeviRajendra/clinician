@@ -1,10 +1,14 @@
 <template>
   <header class="navbar">
-    <RouterLink to="/chat" class="brand" aria-label="Clinician home">
+    <RouterLink to="/home" class="brand" aria-label="Clinician home">
       <BrandMark />
       <span>clinician<span class="brand-period">.</span></span>
     </RouterLink>
-    <span class="nav-context">Your knowledge companion</span>
+    <nav class="workspace-nav" aria-label="Primary navigation">
+      <RouterLink to="/chat">Chat with AI</RouterLink>
+      <RouterLink to="/profile">Profile</RouterLink>
+      <RouterLink to="/faxes">Faxes</RouterLink>
+    </nav>
     <div class="nav-account">
       <span class="account-name">{{ auth.user?.name || auth.user?.email }}</span>
       <span class="account-avatar" aria-hidden="true">{{ initial }}</span>
