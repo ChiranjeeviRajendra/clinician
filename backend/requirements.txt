@@ -1,6 +1,11 @@
 sentence-transformers
 langchain
 flask
+Flask-SQLAlchemy>=3.1,<4
+Flask-Migrate>=4.1,<5
+psycopg[binary]>=3.2,<4
+email-validator>=2.2,<3
+Flask-Limiter>=3.12,<5
 pypdf
 python-dotenv
 pinecone[grpc]
