@@ -71,17 +71,22 @@ def login(email, password):
     if user.email_verified_at is None:
         raise AuthError("email_not_verified", "Verify your email before logging in.", 403)
     raw = secrets.token_urlsafe(32)
+    now = utcnow()
     session = AuthSession(user_id=user.id, token_hash=hash_token(raw),
-                          expires_at=utcnow() + timedelta(seconds=current_app.config["SESSION_TTL_SECONDS"]))
+                          created_at=now,
+                          expires_at=now + timedelta(seconds=current_app.config["SESSION_TTL_SECONDS"]))
     db.session.add(session)
     db.session.commit()
     return user, raw, session.expires_at
 
 
 def authenticated_session(raw):
+    now = utcnow()
     session = db.session.scalar(select(AuthSession).where(
         AuthSession.token_hash == hash_token(raw),
-        AuthSession.revoked_at.is_(None), AuthSession.expires_at > utcnow(),
+        AuthSession.revoked_at.is_(None), AuthSession.expires_at > now,
+        # Apply the configured maximum age to sessions issued before a TTL change.
+        AuthSession.created_at > now - timedelta(seconds=current_app.config["SESSION_TTL_SECONDS"]),
     ))
     if session is None:
         raise AuthError("unauthorized", "A valid session is required.", 401)

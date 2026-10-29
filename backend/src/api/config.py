@@ -13,7 +13,7 @@ def load_config():
         "SQLALCHEMY_TRACK_MODIFICATIONS": False,
         "SQLALCHEMY_ENGINE_OPTIONS": {"pool_pre_ping": True},
         "MAX_CONTENT_LENGTH": 16 * 1024,
-        "SESSION_TTL_SECONDS": int(os.getenv("SESSION_TTL_SECONDS", "604800")),
+        "SESSION_TTL_SECONDS": int(os.getenv("SESSION_TTL_SECONDS", "43200")),
         "VERIFY_EMAIL_TTL_SECONDS": int(os.getenv("VERIFY_EMAIL_TTL_SECONDS", "86400")),
         "RESET_PASSWORD_TTL_SECONDS": int(os.getenv("RESET_PASSWORD_TTL_SECONDS", "1800")),
         "FRONTEND_URL": os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/"),

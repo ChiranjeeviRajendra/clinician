@@ -127,6 +127,26 @@ def test_expired_session(client, mailbox, app):
     assert client.get("/auth/me", headers=headers).status_code == 401
 
 
+def test_new_session_lifetime_is_twelve_hours(client, mailbox, app):
+    verified_user(client, mailbox)
+    response = login(client)
+    assert response.status_code == 200
+    with app.app_context():
+        session = db.session.scalar(select(AuthSession))
+        assert session.expires_at - session.created_at == timedelta(hours=12)
+
+
+def test_old_long_lived_session_cannot_exceed_current_lifetime(client, mailbox, app):
+    verified_user(client, mailbox)
+    headers = bearer(login(client))
+    with app.app_context():
+        session = db.session.scalar(select(AuthSession))
+        session.created_at = utcnow() - timedelta(hours=13)
+        session.expires_at = utcnow() + timedelta(days=6)
+        db.session.commit()
+    assert client.get("/auth/me", headers=headers).status_code == 401
+
+
 def test_token_purposes_cannot_be_swapped(client, mailbox):
     register(client)
     verify = token_from_email(mailbox)

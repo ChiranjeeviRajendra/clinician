@@ -44,8 +44,13 @@ In local file-mail mode, verification/reset emails are in
 `backend/instance/mail/*.eml`. Open the complete link while Vite is running.
 SMTP can be configured in `backend/.env` for real email delivery.
 
-Session credentials stay in Pinia memory. Refreshing the page or closing the tab
-requires signing in again. They are never written to localStorage or sessionStorage.
+Session credentials and the user profile are kept in Pinia and the current tab's
+`sessionStorage`. Refreshing restores the login without extending its expiration.
+Sessions expire 12 hours after login (or sooner if the server sets an earlier
+expiration); closing the tab ends browser storage persistence. Credentials are
+never written to `localStorage`. Expired or malformed saved sessions are removed,
+and signing out clears the stored session after the server confirms revocation.
+Protected pages return to sign-in when the expiration timer fires.
 Route guards protect the chat page; Flask also authenticates every chat request.
 A server `401` clears the client session and returns the user to sign in.
 
@@ -62,7 +67,7 @@ src/
 |-- pages/               Login, account recovery, and chat screens
 |-- router/              Routes and authentication guards
 |-- services/            JSON HTTP client and API contracts
-`-- stores/auth.js       In-memory authenticated session
+`-- stores/auth.js       Tab-scoped session storage and authenticated state
 ```
 
 ## Verify and build
