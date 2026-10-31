@@ -146,13 +146,16 @@ Use the opaque session token from login for authenticated requests:
 Authorization: Bearer SESSION_TOKEN
 ```
 
-Sessions are stored server-side and expire in seven days by default. Verification
+Sessions are stored server-side and expire in 12 hours by default
+(`SESSION_TTL_SECONDS=43200`). Authentication also checks session age, so previously
+issued sessions cannot exceed the currently configured lifetime. Verification
 tokens expire in 24 hours; reset tokens in 30 minutes. Email tokens are single-use.
 A new reset request invalidates previous reset tokens. Tokens are cryptographically
 random and only SHA-256 hashes are persisted. Password resets and token consumption
 use PostgreSQL row locks to prevent token replay and races with login. Tokens and
 password hashes are never included in user responses. Use HTTPS outside localhost
-and keep Bearer credentials out of URLs and browser persistent storage.
+and keep Bearer credentials out of URLs. The Vue client stores its session in
+the current tab's `sessionStorage` and removes it on logout or expiration.
 
 ## Development email
 

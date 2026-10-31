@@ -28,4 +28,16 @@ router.beforeEach((to) => {
   if (to.meta.guestOnly && auth.hasSession()) return { name: 'home' }
 })
 
+let expirationTimer
+router.afterEach((to) => {
+  clearTimeout(expirationTimer)
+  const auth = useAuthStore()
+  if (!to.meta.requiresAuth || !auth.hasSession()) return
+  expirationTimer = setTimeout(() => {
+    if (!auth.hasSession()) {
+      router.replace({ name: 'login', query: { expired: '1' } })
+    }
+  }, Math.max(0, Date.parse(auth.expiresAt) - Date.now()))
+})
+
 export default router
