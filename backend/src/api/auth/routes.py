@@ -26,12 +26,7 @@ def require_auth(view):
 @limiter.limit("5 per hour")
 def register():
     body = json_body()
-    name = None
-    if "name" in body:
-        name = text(body, "name", maximum=100).strip()
-        if not name:
-            raise AuthError("invalid_input", "name must not be blank.")
-    user = service.register(email_address(body), password(body), name)
+    user = service.register(email_address(body), password(body))
     return jsonify(user=user.to_dict(), message="Account created. Check your email to verify your account."), 201
 
 

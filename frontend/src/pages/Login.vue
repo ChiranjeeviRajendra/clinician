@@ -35,10 +35,6 @@
         <p v-else-if="!isRegister && sessionMessage" class="notice error" role="alert">{{ sessionMessage }}</p>
 
         <form class="form-stack" @submit.prevent="submit">
-          <div v-if="isRegister" class="field">
-            <label for="name">Full name</label>
-            <input id="name" v-model="name" name="name" autocomplete="name" placeholder="Your name" maxlength="100" required :disabled="pending" />
-          </div>
           <div class="field">
             <label for="email">Email address</label>
             <input id="email" v-model="email" name="email" type="email" autocomplete="email" placeholder="you@example.com" maxlength="254" required :disabled="pending" />
@@ -79,7 +75,6 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const isRegister = computed(() => route.query.mode === 'register')
-const name = ref('')
 const email = ref('')
 const password = ref('')
 const showPassword = ref(false)
@@ -107,7 +102,7 @@ async function submit() {
   try {
     const credentials = { email: email.value.trim(), password: password.value }
     if (isRegister.value) {
-      await authApi.register({ ...credentials, name: name.value.trim() })
+      await authApi.register(credentials)
       await setMode(false)
       success.value = `We sent a verification link to ${credentials.email}. Verify your email, then sign in here.`
     } else {

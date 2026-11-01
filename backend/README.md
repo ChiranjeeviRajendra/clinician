@@ -147,7 +147,7 @@ the current structure; the existing `python template.py` command delegates to it
 
 | Table | Data |
 | --- | --- |
-| `users` | UUID, unique normalized email, optional name, password hash, verification time, timestamps |
+| `users` | UUID, unique normalized email, password hash, verification time, timestamps |
 | `auth_sessions` | UUID, user foreign key, unique hashed session token, expiry and revocation timestamps |
 | `auth_tokens` | UUID, user foreign key, unique hashed token, purpose, expiry and consumption timestamps |
 | `alembic_version` | Applied migration revision |
@@ -166,7 +166,7 @@ except the empty `204` logout response. Errors have the shape
 | Endpoint | JSON body | Success |
 | --- | --- | --- |
 | `GET /appInfo` | None; requires Bearer token | `200`: `name`, `service`, `status`, authenticated `user`, and effective session `expires_at` |
-| `POST /auth/register` | `{"email":"doctor@example.com","password":"long-secure-password","name":"Doctor"}` (`name` optional) | `201`: user and verification message |
+| `POST /auth/register` | `{"email":"doctor@example.com","password":"long-secure-password"}` | `201`: user and verification message |
 | `POST /auth/login` | `{"email":"doctor@example.com","password":"long-secure-password"}` | `200`: user, `session_token`, `token_type`, `expires_at` |
 | `POST /auth/logout` | None; requires Bearer token | `204`: session revoked |
 | `GET /auth/me` | None; requires Bearer token | `200`: `{"user":{...}}` |

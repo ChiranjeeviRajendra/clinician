@@ -45,8 +45,8 @@ def email_token(user, purpose, raw):
                "If you did not request this, you can ignore this email.")
 
 
-def register(email, password, name=None):
-    user = User(email=email, name=name, password_hash=generate_password_hash(password))
+def register(email, password):
+    user = User(email=email, password_hash=generate_password_hash(password))
     db.session.add(user)
     try:
         db.session.flush()

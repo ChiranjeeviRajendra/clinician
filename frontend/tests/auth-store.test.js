@@ -6,7 +6,7 @@ import { appApi } from '../src/services/app.js'
 import { ApiError } from '../src/services/http.js'
 import { SESSION_STORAGE_KEY, useAuthStore } from '../src/stores/auth.js'
 
-const user = { id: 'test-user', name: 'Doctor', email: 'doctor@example.com' }
+const user = { id: 'test-user', email: 'doctor@example.com' }
 const session = { user, session_token: 'test-token', expires_at: new Date(Date.now() + 3600000).toISOString() }
 
 const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage')

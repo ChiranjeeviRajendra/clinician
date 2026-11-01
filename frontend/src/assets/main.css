@@ -96,7 +96,7 @@ h1, h2, p { margin: 0; }
 .workspace-nav a:hover { color: var(--green); background: #f0f4ea; }
 .workspace-nav a.router-link-active { color: var(--green); background: #e7eedf; }
 .nav-account { margin-left: auto; display: flex; align-items: center; gap: 14px; }
-.account-name { font-size: 12px; color: #76816f; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-email { font-size: 12px; color: #76816f; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-avatar { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: #e7eedf; color: #66815a; font-size: 11px; font-weight: 600; }
 .text-button { background: transparent; border: none; padding: 8px 0 8px 10px; font-size: 11px; color: #73806b; }
 .text-button:hover { color: var(--green); }
@@ -183,7 +183,7 @@ h1, h2, p { margin: 0; }
   .auth-story { padding-left: 15%; padding-right: 12%; }
 }
 @media (max-width: 1000px) {
-  .navbar .account-name { display: none; }
+  .navbar .account-email { display: none; }
   .navbar { gap: 20px; }
   .auth-story { padding: 35px 9%; }
   .story-content h1 { letter-spacing: -2.3px; }
@@ -214,7 +214,7 @@ h1, h2, p { margin: 0; }
   .navbar { height: var(--navbar-height); padding: 12px 20px 0; flex-wrap: wrap; align-content: space-between; gap: 0; }
   .navbar .brand { font-size: 22px; }
   .navbar .brand-mark { width: 30px; height: 30px; }
-  .account-name { display: none; }
+  .account-email { display: none; }
   .workspace-nav { order: 3; flex-basis: 100%; justify-content: center; padding-bottom: 7px; }
   .workspace-nav a { flex: 1; text-align: center; padding: 9px 10px; }
   .home-page { padding: 42px 24px; }

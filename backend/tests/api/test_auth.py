@@ -21,7 +21,7 @@ def token_from_email(mailbox):
 
 
 def register(client):
-    return client.post("/auth/register", json={"email": EMAIL, "password": PASSWORD, "name": "Doctor"})
+    return client.post("/auth/register", json={"email": EMAIL, "password": PASSWORD})
 
 
 def verified_user(client, mailbox):
@@ -44,6 +44,7 @@ def test_register_verify_login_me_logout(client, mailbox, app):
     assert response.status_code == 201
     assert response.json["user"]["email_verified"] is False
     assert "password_hash" not in response.json["user"]
+    assert "name" not in response.json["user"]
     assert response.headers["Cache-Control"] == "no-store"
     assert login(client).status_code == 403
     token = token_from_email(mailbox)
@@ -164,7 +165,7 @@ def test_token_purposes_cannot_be_swapped(client, mailbox):
 
 @pytest.mark.parametrize("payload", [None, [], {}, {"email": "bad", "password": PASSWORD},
     {"email": EMAIL, "password": "short"}, {"email": EMAIL, "password": 123},
-    {"email": EMAIL, "password": "x" * 129}, {"email": EMAIL, "password": PASSWORD, "name": " "},
+    {"email": EMAIL, "password": "x" * 129},
 ])
 def test_register_rejects_invalid_inputs(client, payload):
     assert client.post("/auth/register", json=payload).status_code in (400, 415)

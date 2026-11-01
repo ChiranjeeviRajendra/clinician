@@ -10,7 +10,7 @@
       <RouterLink to="/faxes">Faxes</RouterLink>
     </nav>
     <div class="nav-account">
-      <span class="account-name">{{ auth.user?.name || auth.user?.email }}</span>
+      <span class="account-email">{{ auth.user?.email }}</span>
       <span class="account-avatar" aria-hidden="true">{{ initial }}</span>
       <button class="text-button" :disabled="pending" @click="signOut">
         {{ pending ? 'Signing out…' : 'Sign out' }}
@@ -30,7 +30,7 @@ const router = useRouter()
 const auth = useAuthStore()
 const pending = ref(false)
 const error = ref('')
-const initial = computed(() => (auth.user?.name || auth.user?.email || 'U')[0].toUpperCase())
+const initial = computed(() => (auth.user?.email || 'U')[0].toUpperCase())
 
 async function signOut() {
   pending.value = true

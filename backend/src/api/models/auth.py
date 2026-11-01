@@ -19,14 +19,13 @@ class User(db.Model):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(String(254), unique=True, nullable=False)
-    name: Mapped[str | None] = mapped_column(String(100))
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=utcnow)
 
     def to_dict(self):
-        return {"id": str(self.id), "email": self.email, "name": self.name,
+        return {"id": str(self.id), "email": self.email,
                 "email_verified": self.email_verified_at is not None,
                 "created_at": self.created_at.isoformat()}
 
