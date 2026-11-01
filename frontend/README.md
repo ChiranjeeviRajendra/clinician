@@ -45,9 +45,14 @@ In local file-mail mode, verification/reset emails are in
 SMTP can be configured in `backend/.env` for real email delivery.
 
 Session credentials and the user profile are kept in Pinia and the current tab's
-`sessionStorage`. On page load, `GET /appInfo` runs only when tab storage contains
-a token. Without a token, no app-info request is made. Protected page components
-wait for server validation when needed. A valid response supplies application
+`sessionStorage`. On page load and every route navigation, `GET /appInfo` runs
+only when tab storage contains a token that has not already expired locally.
+Without a token, no app-info request is made. Route navigation waits for the
+server check, including query and fragment changes. Concurrent navigations share
+an in-flight check. A loading overlay is visible while app-info requests run,
+and background controls are disabled. The current page stays mounted while a
+later route is checked.
+New protected page components wait for server validation. A valid response supplies application
 information, the current user, and expiration without extending the saved session.
 Invalid or revoked tokens redirect directly to login with "You do not have access
 to the app. Please login to continue." Expired sessions show "Your login session

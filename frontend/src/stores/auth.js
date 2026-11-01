@@ -67,12 +67,16 @@ export const useAuthStore = defineStore('auth', () => {
   const appInfo = ref(null)
   const appStatus = ref('idle')
   const appError = ref('')
+  const appInfoRequests = ref(0)
+  const isAppInfoLoading = computed(() => appInfoRequests.value > 0)
   const loginReason = ref(restored.reason)
   const returnTo = ref(readStorage(RETURN_TO_STORAGE_KEY))
   let initialization
+  let sessionVersion = 0
   const isAuthenticated = computed(() => Boolean(user.value && sessionToken.value))
 
   function clearSession() {
+    sessionVersion += 1
     user.value = null
     sessionToken.value = null
     expiresAt.value = null
@@ -95,6 +99,15 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function loadAppInfo(token) {
+    appInfoRequests.value += 1
+    try {
+      return await appApi.info(token)
+    } finally {
+      appInfoRequests.value -= 1
+    }
+  }
+
   function saveSession(profile, token, serverExpiry, maximumExpiry = Infinity) {
     const expiry = Math.min(Date.parse(serverExpiry), maximumExpiry, Date.now() + SESSION_DURATION_MS)
     if (!Number.isFinite(expiry) || expiry <= Date.now()) {
@@ -104,6 +117,7 @@ export const useAuthStore = defineStore('auth', () => {
       throw error
     }
     user.value = profile
+    sessionVersion += 1
     sessionToken.value = token
     expiresAt.value = new Date(expiry).toISOString()
     try {
@@ -117,30 +131,34 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function initializeApp() {
-    if (initialization) return initialization
-    if (appStatus.value === 'ready') return
+  async function initializeApp({ force = false } = {}) {
+    if (appStatus.value === 'ready' && !force) return
     const token = savedToken()
     if (!token) {
       if (sessionToken.value) endSession('denied')
       appStatus.value = 'ready'
       return
     }
+    if (initialization) return initialization
     if (expiresAt.value && Date.parse(expiresAt.value) <= Date.now()) {
       endSession('expired')
       return
     }
-    appStatus.value = 'loading'
+    // Keep the current page mounted while a later navigation is validated.
+    if (appStatus.value !== 'ready') appStatus.value = 'loading'
     appError.value = ''
+    const validationVersion = sessionVersion
     initialization = (async () => {
       try {
-        const info = await appApi.info(token)
+        const info = await loadAppInfo(token)
+        if (validationVersion !== sessionVersion) return
         const previousExpiry = Date.parse(expiresAt.value)
         saveSession(info.user, token, info.expires_at, Number.isFinite(previousExpiry) ? previousExpiry : Infinity)
         appInfo.value = info
         loginReason.value = ''
         appStatus.value = 'ready'
       } catch (error) {
+        if (validationVersion !== sessionVersion) return
         if (error.status === 401) {
           endSession(error.code === 'session_expired' ? 'expired' : 'denied')
         } else {
@@ -170,7 +188,7 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const persisted = saveSession(response.user, response.session_token, response.expires_at)
       if (persisted) {
-        const info = await appApi.info(response.session_token)
+        const info = await loadAppInfo(response.session_token)
         saveSession(info.user, response.session_token, info.expires_at, Date.parse(expiresAt.value))
         appInfo.value = info
       }
@@ -199,7 +217,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   return {
-    user, sessionToken, expiresAt, appInfo, appStatus, appError, loginReason, returnTo,
+    user, sessionToken, expiresAt, appInfo, appStatus, appError, isAppInfoLoading, loginReason, returnTo,
     isAuthenticated, hasSession, clearSession, signIn, signOut,
     initializeApp, endSession, rememberPage,
   }

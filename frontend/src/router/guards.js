@@ -4,9 +4,9 @@ import { getReturnTo, loginLocation } from './session.js'
 export function installAuthGuards(router) {
   router.beforeEach(async (to) => {
     const auth = useAuthStore()
-    const checkingSavedSession = auth.appStatus !== 'ready' && Boolean(auth.sessionToken || auth.loginReason)
+    const checkingSavedSession = Boolean(auth.sessionToken || (auth.appStatus !== 'ready' && auth.loginReason))
     if (to.meta.requiresAuth) auth.rememberPage(to.fullPath)
-    await auth.initializeApp()
+    await auth.initializeApp({ force: true })
     if (auth.appStatus !== 'ready') return false
     if (to.meta.requiresAuth && !auth.hasSession()) {
       return loginLocation(auth, to.fullPath)
