@@ -59,8 +59,10 @@ def test_register_verify_login_me_logout(client, mailbox, app):
     with app.app_context():
         assert db.session.scalar(select(AuthSession)).token_hash == hash_token(response.json["session_token"])
     assert client.get("/auth/me", headers=headers).json["user"]["email_verified"] is True
+    assert client.get("/appInfo", headers=headers).status_code == 200
     assert client.post("/auth/logout", headers=headers).status_code == 204
     assert client.get("/auth/me", headers=headers).status_code == 401
+    assert client.get("/appInfo", headers=headers).status_code == 401
     assert client.post("/auth/logout", headers=headers).status_code == 401
 
 
@@ -125,6 +127,7 @@ def test_expired_session(client, mailbox, app):
         db.session.scalar(select(AuthSession)).expires_at = utcnow() - timedelta(seconds=1)
         db.session.commit()
     assert client.get("/auth/me", headers=headers).status_code == 401
+    assert client.get("/appInfo", headers=headers).status_code == 401
 
 
 def test_new_session_lifetime_is_twelve_hours(client, mailbox, app):
@@ -145,6 +148,7 @@ def test_old_long_lived_session_cannot_exceed_current_lifetime(client, mailbox, 
         session.expires_at = utcnow() + timedelta(days=6)
         db.session.commit()
     assert client.get("/auth/me", headers=headers).status_code == 401
+    assert client.get("/appInfo", headers=headers).status_code == 401
 
 
 def test_token_purposes_cannot_be_swapped(client, mailbox):

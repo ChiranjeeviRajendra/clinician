@@ -2,9 +2,20 @@ import { afterEach, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { apiRequest, ApiError } from '../src/services/http.js'
 import { authApi } from '../src/services/auth.js'
+import { appApi } from '../src/services/app.js'
 import { sendMessage } from '../src/services/chat.js'
 
 afterEach(() => mock.restoreAll())
+
+test('appInfo checks the saved bearer token without caching the result', async () => {
+  const fetchMock = mock.method(globalThis, 'fetch', async () => Response.json({ name: 'Clinician' }))
+  assert.equal((await appApi.info('saved-token')).name, 'Clinician')
+  const [url, options] = fetchMock.mock.calls[0].arguments
+  assert.equal(url, '/api/appInfo')
+  assert.equal(options.method, 'GET')
+  assert.equal(options.headers.Authorization, 'Bearer saved-token')
+  assert.equal(options.cache, 'no-store')
+})
 
 test('JSON requests include the bearer credential and use the API proxy', async () => {
   const fetchMock = mock.method(globalThis, 'fetch', async () => Response.json({ answer: 'Reference answer.' }))

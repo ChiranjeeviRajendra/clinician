@@ -2,6 +2,7 @@ import { afterEach, beforeEach, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createPinia, setActivePinia } from 'pinia'
 import { authApi } from '../src/services/auth.js'
+import { appApi } from '../src/services/app.js'
 import { ApiError } from '../src/services/http.js'
 import { SESSION_STORAGE_KEY, useAuthStore } from '../src/stores/auth.js'
 
@@ -29,7 +30,7 @@ afterEach(() => {
 
 test('sign in loads the authenticated profile before establishing a session', async () => {
   mock.method(authApi, 'login', async () => session)
-  const profile = mock.method(authApi, 'me', async () => ({ user }))
+  const profile = mock.method(appApi, 'info', async () => ({ user, expires_at: session.expires_at }))
   const auth = useAuthStore()
   await auth.signIn({ email: user.email, password: 'test-password' })
   assert.equal(profile.mock.calls[0].arguments[0], session.session_token)
@@ -43,7 +44,7 @@ test('sign in loads the authenticated profile before establishing a session', as
 
 test('a profile failure leaves no client session', async () => {
   mock.method(authApi, 'login', async () => session)
-  mock.method(authApi, 'me', async () => { throw new ApiError('Unauthorized', 401) })
+  mock.method(appApi, 'info', async () => { throw new ApiError('Unauthorized', 401) })
   const auth = useAuthStore()
   await assert.rejects(auth.signIn({}))
   assert.equal(auth.isAuthenticated, false)
@@ -87,7 +88,7 @@ test('expired credentials cannot pass the client route guard', () => {
 
 test('a page reload restores the session without extending its expiration', async () => {
   mock.method(authApi, 'login', async () => session)
-  mock.method(authApi, 'me', async () => ({ user }))
+  mock.method(appApi, 'info', async () => ({ user, expires_at: session.expires_at }))
   await useAuthStore().signIn({ email: user.email, password: 'test-password' })
   const saved = sessionStorage.getItem(SESSION_STORAGE_KEY)
   setActivePinia(createPinia())
@@ -102,7 +103,7 @@ test('client expiration is capped at twelve hours even for a longer server sessi
   const now = Date.now()
   mock.method(Date, 'now', () => now)
   mock.method(authApi, 'login', async () => ({ ...session, expires_at: new Date(now + 7 * 86400000).toISOString() }))
-  mock.method(authApi, 'me', async () => ({ user }))
+  mock.method(appApi, 'info', async () => ({ user, expires_at: new Date(now + 7 * 86400000).toISOString() }))
   const auth = useAuthStore()
   await auth.signIn({})
   assert.equal(Date.parse(auth.expiresAt), now + 12 * 3600000)
@@ -113,7 +114,7 @@ test('reloading after twelve hours discards the saved login', async () => {
   const now = Date.now()
   mock.method(Date, 'now', () => now)
   mock.method(authApi, 'login', async () => ({ ...session, expires_at: new Date(now + 12 * 3600000).toISOString() }))
-  mock.method(authApi, 'me', async () => ({ user }))
+  mock.method(appApi, 'info', async () => ({ user, expires_at: new Date(now + 12 * 3600000).toISOString() }))
   await useAuthStore().signIn({})
   mock.method(Date, 'now', () => now + 12 * 3600000)
   setActivePinia(createPinia())
@@ -123,7 +124,7 @@ test('reloading after twelve hours discards the saved login', async () => {
 
 test('active expired sessions are removed from session storage', async () => {
   mock.method(authApi, 'login', async () => session)
-  mock.method(authApi, 'me', async () => ({ user }))
+  mock.method(appApi, 'info', async () => ({ user, expires_at: session.expires_at }))
   const auth = useAuthStore()
   await auth.signIn({})
   mock.method(Date, 'now', () => Date.parse(session.expires_at))
@@ -150,7 +151,7 @@ test('blocked browser storage does not break login or logout', async () => {
     get() { throw new Error('Storage is blocked') },
   })
   mock.method(authApi, 'login', async () => session)
-  mock.method(authApi, 'me', async () => ({ user }))
+  mock.method(appApi, 'info', async () => ({ user, expires_at: session.expires_at }))
   mock.method(authApi, 'logout', async () => null)
   const auth = useAuthStore()
   await auth.signIn({})

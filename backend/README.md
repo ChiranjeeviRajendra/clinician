@@ -112,6 +112,7 @@ except the empty `204` logout response. Errors have the shape
 
 | Endpoint | JSON body | Success |
 | --- | --- | --- |
+| `GET /appInfo` | None; requires Bearer token | `200`: `name`, `service`, `status`, authenticated `user`, and effective session `expires_at` |
 | `POST /auth/register` | `{"email":"doctor@example.com","password":"long-secure-password","name":"Doctor"}` (`name` optional) | `201`: user and verification message |
 | `POST /auth/login` | `{"email":"doctor@example.com","password":"long-secure-password"}` | `200`: user, `session_token`, `token_type`, `expires_at` |
 | `POST /auth/logout` | None; requires Bearer token | `204`: session revoked |
