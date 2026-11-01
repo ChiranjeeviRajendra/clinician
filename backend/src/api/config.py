@@ -9,6 +9,9 @@ def load_config():
         if database_url.startswith(prefix):
             database_url = database_url.replace(prefix, "postgresql+psycopg://", 1)
     return {
+        "DATABASE_AUTH_MODE": os.getenv("DATABASE_AUTH_MODE", "password").strip().lower(),
+        "AWS_REGION": os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION"),
+        "DATABASE_SSL_ROOT_CERT": os.getenv("DATABASE_SSL_ROOT_CERT", ""),
         "SQLALCHEMY_DATABASE_URI": database_url,
         "SQLALCHEMY_TRACK_MODIFICATIONS": False,
         "SQLALCHEMY_ENGINE_OPTIONS": {"pool_pre_ping": True},

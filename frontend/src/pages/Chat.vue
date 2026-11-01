@@ -57,12 +57,14 @@
 
 <script setup>
 import { computed, nextTick, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import BrandMark from '../components/BrandMark.vue'
 import { useAuthStore } from '../stores/auth.js'
 import { sendMessage } from '../services/chat.js'
+import { loginLocation } from '../router/session.js'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 const messages = ref([])
 const draft = ref('')
@@ -114,8 +116,7 @@ async function submit(question = draft.value, isRetry = false) {
     addMessage('assistant', response.answer)
   } catch (failure) {
     if (failure.status === 401) {
-      auth.clearSession()
-      await router.replace({ name: 'login', query: { expired: '1' } })
+      await router.replace(loginLocation(auth, route.fullPath, failure.code === 'session_expired' ? 'expired' : 'denied'))
     } else {
       error.value = failure.message
     }

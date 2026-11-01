@@ -51,6 +51,59 @@ python -m flask --app app db upgrade
 Compose uses the development credentials in `.env.example` and a persistent
 volume. Do not start it on the same port as the native PostgreSQL service.
 
+## Aurora Express / AWS IAM authentication
+
+Install the updated requirements, then configure `backend/.env` with a URL that
+contains the database username but no password or manually generated token:
+
+```dotenv
+DATABASE_AUTH_MODE=iam
+DATABASE_URL="postgresql+psycopg://postgres@YOUR_RDS_ENDPOINT:5432/clinician?sslmode=verify-full"
+AWS_REGION=ap-southeast-2
+# Optional: a configured local AWS profile (including SSO profiles).
+# AWS_PROFILE=clinician
+```
+
+The SDK uses its standard AWS credential chain: environment credentials, a local
+AWS profile, or an IAM role attached to your deployed service. An AWS console
+browser login alone does not supply credentials to Python. For an IAM Identity
+Center profile, configure it with `aws configure sso --profile clinician`, sign in
+with `aws sso login --profile clinician`, and set `AWS_PROFILE=clinician` in `.env`.
+Temporary environment credentials require `AWS_SESSION_TOKEN` as well as the
+access key and secret key. Keep credentials out of application source control.
+
+The IAM identity must have `rds-db:connect` permission for this cluster and database
+user. Its policy resource has the form
+`arn:aws:rds-db:ap-southeast-2:ACCOUNT_ID:dbuser:CLUSTER_RESOURCE_ID/postgres`.
+Use the cluster **resource ID** (starting with `cluster-`), not its display name.
+Aurora Express sets up `rds_iam` membership for the admin user automatically;
+do not revoke that role on an Express cluster.
+
+Each new physical SQLAlchemy connection obtains a fresh IAM token through
+`generate_db_auth_token`. Tokens are passed directly to psycopg as the connection
+password and are never saved in `.env`, the SQLAlchemy URL, or application logs.
+Existing pooled connections remain usable after their authentication token's
+15-minute validity period. `pool_pre_ping` handles stale pooled connections; a
+replacement connection gets a new token. AWS refreshable credential providers
+also refresh their credentials through the SDK.
+
+IAM connections enforce `sslmode=verify-full`. Aurora Express internet gateways
+use public AWS root certificates, supplied by `certifi`. For a standard RDS
+endpoint using an RDS certificate authority, download the official RDS CA bundle
+and set `DATABASE_SSL_ROOT_CERT=certs/global-bundle.pem`; relative paths resolve
+from `backend`. An explicit `sslrootcert` in the URL is also supported.
+
+The same IAM connection hook applies to `python -m flask --app app db upgrade`
+and `python scripts/create_database.py`. Once AWS credentials are available,
+create `clinician` if necessary, apply migrations, and start `python app.py`.
+Database credential-provider failures return the normal generic database `503`,
+not an application-session `401`. For local PostgreSQL, keep
+`DATABASE_AUTH_MODE=password` (the default).
+
+References: [Aurora Express](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/CHAP_GettingStartedAurora.AuroraPostgreSQL.ExpressConfig.html),
+[Boto3 IAM database connections](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/UsingWithRDS.IAMDBAuth.Connecting.Python.html),
+[SQLAlchemy connection token hook](https://docs.sqlalchemy.org/en/20/core/engines.html#generating-dynamic-authentication-tokens).
+
 ## Structure and schema
 
 ```text
@@ -149,7 +202,9 @@ Authorization: Bearer SESSION_TOKEN
 
 Sessions are stored server-side and expire in 12 hours by default
 (`SESSION_TTL_SECONDS=43200`). Authentication also checks session age, so previously
-issued sessions cannot exceed the currently configured lifetime. Verification
+issued sessions cannot exceed the currently configured lifetime. Expired sessions
+return `401` with error code `session_expired`; unknown or revoked tokens return
+`401 unauthorized`. Verification
 tokens expire in 24 hours; reset tokens in 30 minutes. Email tokens are single-use.
 A new reset request invalidates previous reset tokens. Tokens are cryptographically
 random and only SHA-256 hashes are persisted. Password resets and token consumption

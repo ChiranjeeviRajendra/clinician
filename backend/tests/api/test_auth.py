@@ -127,7 +127,9 @@ def test_expired_session(client, mailbox, app):
         db.session.scalar(select(AuthSession)).expires_at = utcnow() - timedelta(seconds=1)
         db.session.commit()
     assert client.get("/auth/me", headers=headers).status_code == 401
-    assert client.get("/appInfo", headers=headers).status_code == 401
+    response = client.get("/appInfo", headers=headers)
+    assert response.status_code == 401
+    assert response.json["error"]["code"] == "session_expired"
 
 
 def test_new_session_lifetime_is_twelve_hours(client, mailbox, app):

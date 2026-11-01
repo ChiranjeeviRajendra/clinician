@@ -32,6 +32,7 @@
           <strong>Check your inbox.</strong><p>{{ success }}</p>
         </div>
         <p v-if="error" class="notice error" role="alert">{{ error }}</p>
+        <p v-else-if="!isRegister && sessionMessage" class="notice error" role="alert">{{ sessionMessage }}</p>
 
         <form class="form-stack" @submit.prevent="submit">
           <div v-if="isRegister" class="field">
@@ -71,7 +72,8 @@ import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import BrandMark from '../components/BrandMark.vue'
 import { authApi } from '../services/auth.js'
-import { useAuthStore } from '../stores/auth.js'
+import { LOGIN_MESSAGES, useAuthStore } from '../stores/auth.js'
+import { getReturnTo } from '../router/session.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -82,7 +84,11 @@ const email = ref('')
 const password = ref('')
 const showPassword = ref(false)
 const pending = ref(false)
-const error = ref(route.query.expired ? 'Your session has expired. Please sign in again.' : '')
+const error = ref('')
+const sessionMessage = computed(() => {
+  const reason = auth.loginReason || (['expired', 'denied'].includes(route.query.reason) ? route.query.reason : '')
+  return LOGIN_MESSAGES[reason] || (route.query.expired ? LOGIN_MESSAGES.expired : '')
+})
 const success = ref('')
 
 async function setMode(register) {
@@ -106,8 +112,7 @@ async function submit() {
       success.value = `We sent a verification link to ${credentials.email}. Verify your email, then sign in here.`
     } else {
       await auth.signIn(credentials)
-      // Only redirect to a known local destination.
-      await router.replace({ name: 'home' })
+      await router.replace(getReturnTo(router, route.query.redirect, auth.returnTo))
     }
   } catch (failure) {
     error.value = failure.message

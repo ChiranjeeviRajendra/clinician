@@ -25,6 +25,7 @@ def app():
         connection.execute(text(f'CREATE SCHEMA "{schema}"'))
     application = create_app({
         "TESTING": True,
+        "DATABASE_AUTH_MODE": "password",
         "SQLALCHEMY_DATABASE_URI": url,
         "SQLALCHEMY_ENGINE_OPTIONS": {
             "connect_args": {"options": f"-csearch_path={schema}"},
