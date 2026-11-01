@@ -6,6 +6,8 @@ import { installAuthGuards } from '../src/router/guards.js'
 import { appApi } from '../src/services/app.js'
 import { ApiError } from '../src/services/http.js'
 import { getReturnTo } from '../src/router/session.js'
+import { navigateTo } from '../src/router/navigation.js'
+import { sendMessage } from '../src/services/chat.js'
 import { LOGIN_MESSAGES, RETURN_TO_STORAGE_KEY, SESSION_STORAGE_KEY, useAuthStore } from '../src/stores/auth.js'
 
 const user = { id: 'doctor', email: 'doctor@example.com' }
@@ -302,6 +304,167 @@ test('a delayed revalidation cannot restore a signed-out session', async () => {
   assert.equal(auth.sessionToken, null)
   assert.equal(sessionStorage.getItem(SESSION_STORAGE_KEY), null)
 })
+
+test('selecting another navbar item aborts the old request and loads only the new selection', async () => {
+  savedSession()
+  mock.method(globalThis, 'fetch', async () => Response.json(info))
+  await router.push('/home')
+  const requests = []
+  mock.method(globalThis, 'fetch', (_url, options) => new Promise((resolve, reject) => {
+    requests.push({ signal: options.signal, resolve })
+    options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+  }))
+  const auth = useAuthStore()
+  const first = navigateTo(router, auth, '/chat')
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(auth.pendingRoute, '/chat')
+  assert.equal(auth.isAppInfoLoading, true)
+  const second = navigateTo(router, auth, '/profile')
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(requests.length, 2)
+  assert.equal(requests[0].signal.aborted, true)
+  assert.equal(requests[1].signal.aborted, false)
+  assert.equal(auth.pendingRoute, '/profile')
+  assert.equal(auth.isAppInfoLoading, true)
+  requests[1].resolve(Response.json({ ...info, name: 'Latest application info' }))
+  await Promise.all([first, second])
+  assert.equal(router.currentRoute.value.name, 'profile')
+  assert.equal(auth.appInfo.name, 'Latest application info')
+  assert.equal(auth.isAppInfoLoading, false)
+  assert.equal(auth.appError, '')
+  assert.equal(auth.pendingRoute, null)
+})
+
+test('clicking the currently selected navbar item does not start a request', async () => {
+  savedSession()
+  const check = mock.method(appApi, 'info', async () => info)
+  await router.push('/chat?view=recent#latest')
+  await navigateTo(router, useAuthStore(), '/chat')
+  assert.equal(check.mock.callCount(), 1)
+  assert.equal(router.currentRoute.value.fullPath, '/chat?view=recent#latest')
+})
+
+test('changing navbar selection also cancels the previous page API request', async () => {
+  savedSession()
+  mock.method(appApi, 'info', async () => info)
+  await router.push('/chat')
+  let signal
+  mock.method(globalThis, 'fetch', (_url, options) => new Promise((_resolve, reject) => {
+    signal = options.signal
+    signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+  }))
+  const canceled = assert.rejects(sendMessage('A question', 'saved-token'), (error) => error.code === 'request_cancelled')
+  await navigateTo(router, useAuthStore(), '/profile')
+  await canceled
+  assert.equal(signal.aborted, true)
+  assert.equal(router.currentRoute.value.name, 'profile')
+})
+
+test('repeating a pending navbar selection keeps its original request running', async () => {
+  savedSession()
+  const check = mock.method(appApi, 'info', async () => info)
+  await router.push('/home')
+  let resolveInfo
+  let signal
+  check.mock.mockImplementation((_token, options) => {
+    signal = options.signal
+    return new Promise((resolve) => { resolveInfo = resolve })
+  })
+  const auth = useAuthStore()
+  const first = navigateTo(router, auth, '/profile')
+  await new Promise((resolve) => setImmediate(resolve))
+  await navigateTo(router, auth, '/profile')
+  assert.equal(check.mock.callCount(), 2)
+  assert.equal(signal.aborted, false)
+  assert.equal(auth.pendingRoute, '/profile')
+  resolveInfo(info)
+  await first
+  assert.equal(router.currentRoute.value.name, 'profile')
+})
+
+test('rapid switching back to an earlier target does not let its old request clear the new selection', async () => {
+  savedSession()
+  const check = mock.method(appApi, 'info', async () => info)
+  await router.push('/home')
+  const requests = []
+  check.mock.mockImplementation((_token, { signal }) => new Promise((resolve) => {
+    requests.push({ signal, resolve })
+  }))
+  const auth = useAuthStore()
+  const first = navigateTo(router, auth, '/chat')
+  await new Promise((resolve) => setImmediate(resolve))
+  const second = navigateTo(router, auth, '/profile')
+  await new Promise((resolve) => setImmediate(resolve))
+  const third = navigateTo(router, auth, '/chat')
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(requests[0].signal.aborted, true)
+  assert.equal(requests[1].signal.aborted, true)
+  assert.equal(requests[2].signal.aborted, false)
+  requests[0].resolve(info)
+  await first
+  assert.equal(auth.pendingRoute, '/chat')
+  await navigateTo(router, auth, '/chat')
+  assert.equal(requests.length, 3)
+  requests[1].resolve(info)
+  requests[2].resolve(info)
+  await Promise.all([second, third])
+  assert.equal(router.currentRoute.value.name, 'chat')
+  assert.equal(auth.pendingRoute, null)
+  assert.equal(auth.isAppInfoLoading, false)
+})
+
+test('selecting the current page while another page loads cancels that navigation', async () => {
+  savedSession()
+  const check = mock.method(appApi, 'info', async () => info)
+  await router.push('/home')
+  let rejectOld
+  let oldSignal
+  check.mock.mockImplementation((_token, options) => {
+    oldSignal = options.signal
+    return new Promise((_resolve, reject) => { rejectOld = reject })
+  })
+  const auth = useAuthStore()
+  const first = navigateTo(router, auth, '/profile')
+  await new Promise((resolve) => setImmediate(resolve))
+  check.mock.mockImplementation(async () => info)
+  await navigateTo(router, auth, '/home')
+  assert.equal(oldSignal.aborted, true)
+  assert.equal(router.currentRoute.value.name, 'home')
+  assert.equal(auth.pendingRoute, null)
+  assert.equal(auth.isAppInfoLoading, false)
+  // Even an old transport that rejects late cannot display an error.
+  rejectOld(new ApiError('Late service failure', 503))
+  await first
+  assert.equal(auth.appStatus, 'ready')
+  assert.equal(auth.appError, '')
+})
+
+for (const staleResult of ['success', 'unauthorized']) {
+  test(`a canceled request's late ${staleResult} cannot overwrite the latest selection`, async () => {
+    savedSession()
+    const check = mock.method(appApi, 'info', async () => info)
+    await router.push('/home')
+    let resolveOld
+    let rejectOld
+    check.mock.mockImplementation(() => new Promise((resolve, reject) => {
+      resolveOld = resolve
+      rejectOld = reject
+    }))
+    const auth = useAuthStore()
+    const first = navigateTo(router, auth, '/chat')
+    await new Promise((resolve) => setImmediate(resolve))
+    check.mock.mockImplementation(async () => ({ ...info, name: 'Latest' }))
+    await navigateTo(router, auth, '/profile')
+    assert.equal(auth.isAppInfoLoading, false)
+    if (staleResult === 'success') resolveOld({ ...info, name: 'Outdated' })
+    else rejectOld(new ApiError('Unauthorized', 401))
+    await first
+    assert.equal(router.currentRoute.value.name, 'profile')
+    assert.equal(auth.appInfo.name, 'Latest')
+    assert.equal(auth.sessionToken, 'saved-token')
+    assert.equal(auth.appError, '')
+  })
+}
 
 test('a server-expired token uses the expired message even when client expiry is later', async () => {
   savedSession()

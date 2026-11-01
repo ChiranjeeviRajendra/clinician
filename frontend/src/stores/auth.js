@@ -71,12 +71,14 @@ export const useAuthStore = defineStore('auth', () => {
   const isAppInfoLoading = computed(() => appInfoRequests.value > 0)
   const loginReason = ref(restored.reason)
   const returnTo = ref(readStorage(RETURN_TO_STORAGE_KEY))
+  const pendingRoute = ref(null)
   let initialization
   let sessionVersion = 0
   const isAuthenticated = computed(() => Boolean(user.value && sessionToken.value))
 
   function clearSession() {
     sessionVersion += 1
+    initialization?.controller.abort()
     user.value = null
     sessionToken.value = null
     expiresAt.value = null
@@ -99,12 +101,20 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function loadAppInfo(token) {
+  async function loadAppInfo(token, { signal } = {}) {
     appInfoRequests.value += 1
-    try {
-      return await appApi.info(token)
-    } finally {
+    let finished = false
+    const finish = () => {
+      if (finished) return
+      finished = true
       appInfoRequests.value -= 1
+    }
+    signal?.addEventListener('abort', finish, { once: true })
+    try {
+      return await appApi.info(token, { signal })
+    } finally {
+      finish()
+      signal?.removeEventListener('abort', finish)
     }
   }
 
@@ -131,15 +141,20 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function initializeApp({ force = false } = {}) {
+  async function initializeApp({ force = false, signal } = {}) {
+    if (signal?.aborted) return
     if (appStatus.value === 'ready' && !force) return
     const token = savedToken()
     if (!token) {
+      initialization?.controller.abort()
       if (sessionToken.value) endSession('denied')
       appStatus.value = 'ready'
       return
     }
-    if (initialization) return initialization
+    if (initialization && !initialization.controller.signal.aborted && initialization.signal === signal) {
+      return initialization.promise
+    }
+    initialization?.controller.abort()
     if (expiresAt.value && Date.parse(expiresAt.value) <= Date.now()) {
       endSession('expired')
       return
@@ -148,17 +163,22 @@ export const useAuthStore = defineStore('auth', () => {
     if (appStatus.value !== 'ready') appStatus.value = 'loading'
     appError.value = ''
     const validationVersion = sessionVersion
-    initialization = (async () => {
+    const request = { controller: new AbortController(), signal, promise: null }
+    initialization = request
+    const abort = () => request.controller.abort()
+    signal?.addEventListener('abort', abort, { once: true })
+    request.promise = (async () => {
       try {
-        const info = await loadAppInfo(token)
-        if (validationVersion !== sessionVersion) return
+        const info = await loadAppInfo(token, { signal: request.controller.signal })
+        if (request.controller.signal.aborted || initialization !== request || validationVersion !== sessionVersion) return
         const previousExpiry = Date.parse(expiresAt.value)
         saveSession(info.user, token, info.expires_at, Number.isFinite(previousExpiry) ? previousExpiry : Infinity)
         appInfo.value = info
         loginReason.value = ''
         appStatus.value = 'ready'
       } catch (error) {
-        if (validationVersion !== sessionVersion) return
+        if (request.controller.signal.aborted || initialization !== request || validationVersion !== sessionVersion) return
+        if (error.code === 'request_cancelled') return
         if (error.status === 401) {
           endSession(error.code === 'session_expired' ? 'expired' : 'denied')
         } else {
@@ -168,9 +188,10 @@ export const useAuthStore = defineStore('auth', () => {
       }
     })()
     try {
-      await initialization
+      await request.promise
     } finally {
-      initialization = null
+      signal?.removeEventListener('abort', abort)
+      if (initialization === request) initialization = null
     }
   }
 
@@ -217,7 +238,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   return {
-    user, sessionToken, expiresAt, appInfo, appStatus, appError, isAppInfoLoading, loginReason, returnTo,
+    user, sessionToken, expiresAt, appInfo, appStatus, appError, isAppInfoLoading, loginReason, returnTo, pendingRoute,
     isAuthenticated, hasSession, clearSession, signIn, signOut,
     initializeApp, endSession, rememberPage,
   }

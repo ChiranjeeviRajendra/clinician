@@ -115,6 +115,7 @@ async function submit(question = draft.value, isRetry = false) {
     if (typeof response.answer !== 'string') throw new Error('The assistant returned an unexpected response. Please try again.')
     addMessage('assistant', response.answer)
   } catch (failure) {
+    if (failure.code === 'request_cancelled') return
     if (failure.status === 401) {
       await router.replace(loginLocation(auth, route.fullPath, failure.code === 'session_expired' ? 'expired' : 'denied'))
     } else {

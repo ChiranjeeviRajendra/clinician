@@ -4,8 +4,12 @@ import { apiRequest, ApiError } from '../src/services/http.js'
 import { authApi } from '../src/services/auth.js'
 import { appApi } from '../src/services/app.js'
 import { sendMessage } from '../src/services/chat.js'
+import { cancelRouteRequests } from '../src/services/route-requests.js'
 
-afterEach(() => mock.restoreAll())
+afterEach(() => {
+  cancelRouteRequests()
+  mock.restoreAll()
+})
 
 test('appInfo checks the saved bearer token without caching the result', async () => {
   const fetchMock = mock.method(globalThis, 'fetch', async () => Response.json({ name: 'Clinician' }))
@@ -75,6 +79,68 @@ test('slow requests abort and clear their timeout', async () => {
     options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
   }))
   await assert.rejects(apiRequest('/chat', { timeout: 5 }), (error) => error.code === 'request_timeout')
+})
+
+test('an external cancellation aborts appInfo without reporting a timeout', async () => {
+  let requestSignal
+  mock.method(globalThis, 'fetch', (_url, options) => new Promise((_resolve, reject) => {
+    requestSignal = options.signal
+    options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+  }))
+  const controller = new AbortController()
+  const request = appApi.info('saved-token', { signal: controller.signal })
+  controller.abort()
+  await assert.rejects(request, (error) => error.code === 'request_cancelled')
+  assert.equal(requestSignal.aborted, true)
+})
+
+test('a signal canceled before the request skips fetch entirely', async () => {
+  const fetchMock = mock.method(globalThis, 'fetch', async () => Response.json({}))
+  const controller = new AbortController()
+  controller.abort()
+  await assert.rejects(appApi.info('saved-token', { signal: controller.signal }), (error) => error.code === 'request_cancelled')
+  assert.equal(fetchMock.mock.callCount(), 0)
+})
+
+test('navigation cancels an outstanding chat request', async () => {
+  let requestSignal
+  mock.method(globalThis, 'fetch', (_url, options) => new Promise((_resolve, reject) => {
+    requestSignal = options.signal
+    options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+  }))
+  const request = sendMessage('A question', 'saved-token')
+  cancelRouteRequests()
+  await assert.rejects(request, (error) => error.code === 'request_cancelled')
+  assert.equal(requestSignal.aborted, true)
+})
+
+test('cancellation while reading a response remains a cancellation error', async () => {
+  mock.method(globalThis, 'fetch', async (_url, options) => ({
+    status: 200,
+    ok: true,
+    json: () => new Promise((_resolve, reject) => {
+      options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+    }),
+  }))
+  const controller = new AbortController()
+  const request = appApi.info('saved-token', { signal: controller.signal })
+  await new Promise((resolve) => setImmediate(resolve))
+  controller.abort()
+  await assert.rejects(request, (error) => error.code === 'request_cancelled')
+})
+
+test('page navigation does not abort an account operation', async () => {
+  let resolveRequest
+  let requestSignal
+  mock.method(globalThis, 'fetch', (_url, options) => new Promise((resolve) => {
+    requestSignal = options.signal
+    resolveRequest = resolve
+  }))
+  const request = authApi.logout('saved-token')
+  cancelRouteRequests()
+  assert.equal(requestSignal.aborted, false)
+  resolveRequest(new Response(null, { status: 204 }))
+  await request
 })
 
 test('account recovery requests match the backend contracts', async () => {

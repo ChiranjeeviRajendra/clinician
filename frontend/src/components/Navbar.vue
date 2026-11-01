@@ -1,13 +1,15 @@
 <template>
   <header class="navbar">
-    <RouterLink to="/home" class="brand" aria-label="Clinician home">
-      <BrandMark />
-      <span>clinician<span class="brand-period">.</span></span>
+    <RouterLink v-slot="{ href }" to="/home" custom>
+      <a :href="href" class="brand" aria-label="Clinician home" @click="selectPage($event, '/home')">
+        <BrandMark />
+        <span>clinician<span class="brand-period">.</span></span>
+      </a>
     </RouterLink>
     <nav class="workspace-nav" aria-label="Primary navigation">
-      <RouterLink to="/chat">Chat with AI</RouterLink>
-      <RouterLink to="/profile">Profile</RouterLink>
-      <RouterLink to="/faxes">Faxes</RouterLink>
+      <RouterLink v-for="item in navigation" :key="item.path" v-slot="{ href }" :to="item.path" custom>
+        <a :href="href" :class="{ 'router-link-active': selectedPath === item.path }" :aria-current="selectedPath === item.path ? 'page' : undefined" @click="selectPage($event, item.path)">{{ item.label }}</a>
+      </RouterLink>
     </nav>
     <div class="nav-account">
       <span class="account-email">{{ auth.user?.email }}</span>
@@ -25,12 +27,25 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import BrandMark from './BrandMark.vue'
 import { useAuthStore } from '../stores/auth.js'
+import { navigateTo } from '../router/navigation.js'
 
 const router = useRouter()
 const auth = useAuthStore()
 const pending = ref(false)
 const error = ref('')
 const initial = computed(() => (auth.user?.email || 'U')[0].toUpperCase())
+const selectedPath = computed(() => router.resolve(auth.pendingRoute || router.currentRoute.value.fullPath).path)
+const navigation = [
+  { path: '/chat', label: 'Chat with AI' },
+  { path: '/profile', label: 'Profile' },
+  { path: '/faxes', label: 'Faxes' },
+]
+
+function selectPage(event, target) {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+  event.preventDefault()
+  navigateTo(router, auth, target)
+}
 
 async function signOut() {
   pending.value = true

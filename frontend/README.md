@@ -55,10 +55,13 @@ Session credentials and the user profile are kept in Pinia and the current tab's
 `sessionStorage`. On page load and every route navigation, `GET /appInfo` runs
 only when tab storage contains a token that has not already expired locally.
 Without a token, no app-info request is made. Route navigation waits for the
-server check, including query and fragment changes. Concurrent navigations share
-an in-flight check. A loading overlay is visible while app-info requests run,
-and background controls are disabled. The current page stays mounted while a
-later route is checked.
+server check, including query and fragment changes. The loading overlay covers
+only the routed content; the navbar remains clickable. Selecting another navbar
+item cancels the previous app-info check and pending page requests, then starts
+a fresh check for the latest selection. Clicking the selected or pending navbar
+item does nothing. Late responses from canceled selections are ignored. Account
+actions run independently of navigation cancellation. The current page stays
+mounted while a later route is checked.
 New protected page components wait for server validation. A valid response supplies application
 information, the current user, and expiration without extending the saved session.
 Invalid or revoked tokens redirect directly to login with "You do not have access

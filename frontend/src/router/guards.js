@@ -1,12 +1,24 @@
 import { useAuthStore } from '../stores/auth.js'
 import { getReturnTo, loginLocation } from './session.js'
+import { cancelRouteRequests } from '../services/route-requests.js'
 
 export function installAuthGuards(router) {
+  let navigation = 0
+  let controller
+  let pendingLocation
   router.beforeEach(async (to) => {
     const auth = useAuthStore()
+    const currentNavigation = ++navigation
+    controller?.abort()
+    controller = new AbortController()
+    const signal = controller.signal
+    cancelRouteRequests()
+    pendingLocation = to
+    auth.pendingRoute = to.fullPath
     const checkingSavedSession = Boolean(auth.sessionToken || (auth.appStatus !== 'ready' && auth.loginReason))
     if (to.meta.requiresAuth) auth.rememberPage(to.fullPath)
-    await auth.initializeApp({ force: true })
+    await auth.initializeApp({ force: true, signal })
+    if (signal.aborted || currentNavigation !== navigation) return false
     if (auth.appStatus !== 'ready') return false
     if (to.meta.requiresAuth && !auth.hasSession()) {
       return loginLocation(auth, to.fullPath)
@@ -22,9 +34,13 @@ export function installAuthGuards(router) {
 
   let expirationTimer
   router.afterEach((to, _from, failure) => {
+    const auth = useAuthStore()
+    if (pendingLocation === to) {
+      auth.pendingRoute = null
+      pendingLocation = null
+    }
     if (failure) return
     clearTimeout(expirationTimer)
-    const auth = useAuthStore()
     if (!to.meta.requiresAuth || !auth.hasSession()) return
     auth.rememberPage(to.fullPath)
     expirationTimer = setTimeout(() => {
