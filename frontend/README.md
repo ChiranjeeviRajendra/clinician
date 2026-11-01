@@ -31,6 +31,11 @@ Vite requires port 5173 so it matches the backend's default email-link URL.
 
 - `/login`: sign in or switch to the create-account form. These call
   `POST /auth/login` and `POST /auth/register` respectively.
+  Forms validate required fields and email format before sending requests.
+  Registration and password reset require a matching confirm-password field
+  and passwords of 12–128 characters. Confirmation is checked only in the UI
+  and is not sent to the backend or stored. Field errors appear on blur or submit
+  and update while the user corrects them.
 - `/home`: default landing page when no previous page is saved, with links to Chat with AI,
   Profile, and Faxes. The Clinician logo returns to this page.
 - `/profile` and `/faxes`: empty authenticated pages reserved for future work.

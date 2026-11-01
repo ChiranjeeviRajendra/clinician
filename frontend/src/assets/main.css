@@ -62,6 +62,8 @@ h1, h2, p { margin: 0; }
 .field input { background: #fff; border: 1px solid #dce3d9; border-radius: 7px; padding: 14px 15px; width: 100%; font-size: 13px; color: var(--ink); min-width: 0; }
 .field input::placeholder { color: #a2aaa0; }
 .field small { font-size: 11px; color: var(--muted); line-height: 1.5; }
+.field .field-error { color: #8e3f36; }
+.field input[aria-invalid="true"] { border-color: #b55445; }
 .field-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .small-link { text-decoration: none; font-size: 11px; color: #5d806c; }
 .small-link:hover, .inline-button:hover, .back-link:hover { text-decoration: underline; }
