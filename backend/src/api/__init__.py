@@ -2,9 +2,10 @@
 
 from pathlib import Path
 from smtplib import SMTPException
+from datetime import timedelta
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request
+from flask import Flask, g, jsonify, request
 from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.exceptions import HTTPException
 
@@ -28,7 +29,7 @@ def create_app(test_config=None):
     limiter.init_app(app)
 
     from . import models  # Register metadata for migrations.
-    from .auth.routes import auth
+    from .auth.routes import auth, require_auth
     from .chat.routes import chat
     from .auth.errors import AuthError
 
@@ -38,6 +39,16 @@ def create_app(test_config=None):
     @app.get("/")
     def service_info():
         return jsonify(service="clinician-api", status="ok")
+
+    @app.get("/appInfo")
+    @require_auth
+    def app_info():
+        expires_at = min(
+            g.auth_session.expires_at,
+            g.auth_session.created_at + timedelta(seconds=app.config["SESSION_TTL_SECONDS"]),
+        )
+        return jsonify(name="Clinician", service="clinician-api", status="ok",
+                       user=g.user.to_dict(), expires_at=expires_at.isoformat())
 
     @app.errorhandler(AuthError)
     def auth_error(error):
@@ -66,7 +77,7 @@ def create_app(test_config=None):
 
     @app.after_request
     def auth_headers(response):
-        if request.path.startswith("/auth/"):
+        if request.path.startswith("/auth/") or request.path == "/appInfo":
             response.headers["Cache-Control"] = "no-store"
             response.headers["Pragma"] = "no-cache"
         return response

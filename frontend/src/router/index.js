@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { useAuthStore } from '../stores/auth.js'
+import { installAuthGuards } from './guards.js'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -20,24 +20,6 @@ const router = createRouter({
   ],
 })
 
-router.beforeEach((to) => {
-  const auth = useAuthStore()
-  if (to.meta.requiresAuth && !auth.hasSession()) {
-    return { name: 'login', query: { redirect: to.fullPath } }
-  }
-  if (to.meta.guestOnly && auth.hasSession()) return { name: 'home' }
-})
-
-let expirationTimer
-router.afterEach((to) => {
-  clearTimeout(expirationTimer)
-  const auth = useAuthStore()
-  if (!to.meta.requiresAuth || !auth.hasSession()) return
-  expirationTimer = setTimeout(() => {
-    if (!auth.hasSession()) {
-      router.replace({ name: 'login', query: { expired: '1' } })
-    }
-  }, Math.max(0, Date.parse(auth.expiresAt) - Date.now()))
-})
+installAuthGuards(router)
 
 export default router

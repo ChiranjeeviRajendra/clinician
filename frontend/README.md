@@ -45,12 +45,19 @@ In local file-mail mode, verification/reset emails are in
 SMTP can be configured in `backend/.env` for real email delivery.
 
 Session credentials and the user profile are kept in Pinia and the current tab's
-`sessionStorage`. Refreshing restores the login without extending its expiration.
+`sessionStorage`. On every page load, the first API request is `GET /appInfo`,
+with the saved Bearer token when present. Route navigation and protected page
+components wait for this server check. A valid response supplies application
+information, the current user, and expiration without extending the saved session.
+An invalid, expired, revoked, or missing session shows an **Access denied** dialog;
+closing it (or pressing Escape) routes to login. Public login, registration, and
+email/password recovery pages remain accessible without a session. Network and
+database failures show a retry screen and preserve saved credentials.
 Sessions expire 12 hours after login (or sooner if the server sets an earlier
 expiration); closing the tab ends browser storage persistence. Credentials are
 never written to `localStorage`. Expired or malformed saved sessions are removed,
 and signing out clears the stored session after the server confirms revocation.
-Protected pages return to sign-in when the expiration timer fires.
+Protected pages show the same access-denied dialog when the expiration timer fires.
 Route guards protect the chat page; Flask also authenticates every chat request.
 A server `401` clears the client session and returns the user to sign in.
 
