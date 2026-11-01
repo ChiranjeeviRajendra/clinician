@@ -46,10 +46,10 @@
               <RouterLink v-if="!isRegister" to="/forgot-password" class="small-link">Forgot password?</RouterLink>
             </div>
             <div class="password-input">
-              <input id="password" v-model="password" name="password" :type="showPassword ? 'text' : 'password'" :autocomplete="isRegister ? 'new-password' : 'current-password'" :placeholder="isRegister ? 'At least 12 characters' : 'Enter your password'" :minlength="isRegister ? 12 : 1" maxlength="128" required :disabled="pending" :aria-invalid="Boolean(fieldError('password'))" :aria-describedby="[isRegister ? 'password-hint' : '', fieldError('password') ? 'password-error' : ''].filter(Boolean).join(' ') || undefined" @blur="touch('password')" />
+              <input id="password" v-model="password" name="password" :type="showPassword ? 'text' : 'password'" :autocomplete="isRegister ? 'new-password' : 'current-password'" :placeholder="isRegister ? 'At least 8 characters' : 'Enter your password'" :minlength="isRegister ? 8 : 1" maxlength="128" required :disabled="pending" :aria-invalid="Boolean(fieldError('password'))" :aria-describedby="[isRegister ? 'password-hint' : '', fieldError('password') ? 'password-error' : ''].filter(Boolean).join(' ') || undefined" @blur="touch('password')" />
               <button type="button" :aria-label="showPassword ? 'Hide password' : 'Show password'" :aria-pressed="showPassword" :disabled="pending" @click="showPassword = !showPassword">{{ showPassword ? 'Hide' : 'Show' }}</button>
             </div>
-            <small v-if="isRegister" id="password-hint">Use 12–128 characters. You’ll verify your email before signing in.</small>
+            <small v-if="isRegister" id="password-hint">Use 8–128 characters. You’ll verify your email before signing in.</small>
             <small v-if="fieldError('password')" id="password-error" class="field-error" role="alert">{{ fieldError('password') }}</small>
           </div>
           <div v-if="isRegister" class="field">

@@ -19,18 +19,18 @@ test('malformed and oversized emails cannot be submitted', () => {
   }
 })
 
-test('new passwords must contain 12 to 128 characters', () => {
-  for (const length of [11, 129]) {
+test('new passwords must contain 8 to 128 characters', () => {
+  for (const length of [7, 129]) {
     assert.ok(validateAccountFields({ ...valid, password: 'x'.repeat(length), confirmPassword: 'x'.repeat(length) }, 'register').password)
   }
-  for (const length of [12, 128]) {
+  for (const length of [8, 128]) {
     assert.deepEqual(validateAccountFields({ ...valid, password: 'x'.repeat(length), confirmPassword: 'x'.repeat(length) }, 'register'), {})
   }
 })
 
 test('password length follows Unicode character counts used by the backend', () => {
-  assert.ok(validateAccountFields({ ...valid, password: '😀'.repeat(6), confirmPassword: '😀'.repeat(6) }, 'register').password)
-  assert.deepEqual(validateAccountFields({ ...valid, password: '😀'.repeat(12), confirmPassword: '😀'.repeat(12) }, 'register'), {})
+  assert.ok(validateAccountFields({ ...valid, password: '😀'.repeat(7), confirmPassword: '😀'.repeat(7) }, 'register').password)
+  assert.deepEqual(validateAccountFields({ ...valid, password: '😀'.repeat(8), confirmPassword: '😀'.repeat(8) }, 'register'), {})
 })
 
 test('confirmation must match exactly, without trimming or changing case', () => {

@@ -10,7 +10,7 @@ export function validateAccountFields({ email = '', password = '', confirmPasswo
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) errors.email = 'Enter a valid email address.'
   }
   if (mode !== 'forgot') {
-    const minimum = mode === 'login' ? 1 : 12
+    const minimum = mode === 'login' ? 1 : 8
     const length = Array.from(password).length
     if (!length) errors.password = 'Enter your password.'
     else if (length < minimum || length > 128) {

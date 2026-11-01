@@ -188,11 +188,19 @@ configuration is needed with this proxy. For production, serve the Vue build
 and reverse-proxy `/api/*` to Flask with the same prefix removal. Vite's development
 proxy does not run in the production build or preview server.
 
-Login requires a verified email. Passwords must have 12–128 characters and are
+Login requires a verified email. New passwords must have 8–128 characters and are
 hashed with Werkzeug scrypt. Emails are normalized to lowercase. Duplicate
 registration returns `409`; invalid credentials/session return `401`; unverified
 login returns `403`; invalid, expired, consumed, or wrong-purpose email tokens
 return `400`. Excessive requests return `429`.
+
+Registration and password reset return `400 weak_password` with
+"Password is too weak. Use at least 8 characters." for passwords below the
+minimum length. Email-bearing auth endpoints return `400 invalid_email` with
+"Enter a valid email address." for missing, malformed, or oversized addresses.
+Email validation checks syntax without DNS or mailbox-existence lookups;
+verification emails establish ownership. Forms display the server's error
+message. Login verifies existing credentials without applying new-password rules.
 
 Use the opaque session token from login for authenticated requests:
 

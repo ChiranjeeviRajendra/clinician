@@ -16,7 +16,7 @@
         </div>
         <div v-if="isReset" class="field">
           <label for="new-password">New password</label>
-          <input id="new-password" v-model="password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" placeholder="At least 12 characters" required :disabled="pending" :aria-invalid="Boolean(fieldError('password'))" :aria-describedby="fieldError('password') ? 'new-password-error' : undefined" @blur="touch('password')" />
+          <input id="new-password" v-model="password" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" placeholder="At least 8 characters" required :disabled="pending" :aria-invalid="Boolean(fieldError('password'))" :aria-describedby="fieldError('password') ? 'new-password-error' : undefined" @blur="touch('password')" />
           <small v-if="fieldError('password')" id="new-password-error" class="field-error" role="alert">{{ fieldError('password') }}</small>
         </div>
         <div v-if="isReset" class="field">

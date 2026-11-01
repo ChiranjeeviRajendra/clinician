@@ -40,6 +40,21 @@ test('server validation errors preserve their code, status, and message', async 
   })
 })
 
+for (const [code, message] of [
+  ['weak_password', 'Password is too weak. Use at least 8 characters.'],
+  ['invalid_email', 'Enter a valid email address.'],
+]) {
+  test(`the UI receives the exact server ${code} message`, async () => {
+    mock.method(globalThis, 'fetch', async () => Response.json({ error: { code, message } }, { status: 400 }))
+    await assert.rejects(authApi.register({ email: 'doctor@example.com', password: '12345678' }), (error) => {
+      assert.equal(error.status, 400)
+      assert.equal(error.code, code)
+      assert.equal(error.message, message)
+      return true
+    })
+  })
+}
+
 test('logout accepts an empty 204 response', async () => {
   mock.method(globalThis, 'fetch', async () => new Response(null, { status: 204 }))
   assert.equal(await authApi.logout('test-token'), null)
