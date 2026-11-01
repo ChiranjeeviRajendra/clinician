@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.exceptions import HTTPException
 
 from .config import load_config
+from .database import configure_database_engine
 from .extensions import db, limiter, migrate
 
 
@@ -25,6 +26,8 @@ def create_app(test_config=None):
         raise ValueError("DATABASE_URL must use PostgreSQL with the psycopg driver.")
 
     db.init_app(app)
+    with app.app_context():
+        configure_database_engine(db.engine, app.config)
     migrate.init_app(app, db, directory=str(root / "migrations"))
     limiter.init_app(app)
 

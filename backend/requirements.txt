@@ -4,6 +4,8 @@ flask
 Flask-SQLAlchemy>=3.1,<4
 Flask-Migrate>=4.1,<5
 psycopg[binary]>=3.2,<4
+boto3>=1.40,<2
+certifi>=2025.1.31
 email-validator>=2.2,<3
 Flask-Limiter>=3.12,<5
 pypdf

@@ -10,25 +10,18 @@
         <p>{{ auth.appError }}</p>
         <button class="primary-button" @click="retry">Try again</button>
       </template>
-      <p v-else-if="auth.appStatus !== 'denied'">Loading Clinician...</p>
+      <p v-else>Loading Clinician...</p>
     </section>
-    <AccessDeniedDialog v-if="auth.appStatus === 'denied'" @close="closeAccessDenied" />
   </div>
 </template>
 
 <script setup>
 import { useRoute, useRouter } from 'vue-router'
 import Navbar from './components/Navbar.vue'
-import AccessDeniedDialog from './components/AccessDeniedDialog.vue'
 import { useAuthStore } from './stores/auth.js'
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
-
-async function closeAccessDenied() {
-  auth.dismissAccessDenied()
-  await router.replace({ name: 'login' })
-}
 
 async function retry() {
   await router.replace(window.location.pathname + window.location.search + window.location.hash)

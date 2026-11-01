@@ -13,7 +13,8 @@ from src.api.models.auth import utcnow
 
 @pytest.fixture
 def client():
-    return create_app({"TESTING": True, "RATELIMIT_ENABLED": False}).test_client()
+    return create_app({"TESTING": True, "RATELIMIT_ENABLED": False,
+                       "DATABASE_AUTH_MODE": "password"}).test_client()
 
 
 @pytest.mark.parametrize("authorization", [None, "", "Basic abc", "Bearer", "Bearer a b"])
@@ -46,12 +47,14 @@ def test_app_info_validates_session_and_returns_only_public_information(client, 
     assert response.headers["Cache-Control"] == "no-store"
 
 
-def test_rejected_session_cannot_read_app_info(client, monkeypatch):
+@pytest.mark.parametrize("code", ["unauthorized", "session_expired"])
+def test_rejected_session_cannot_read_app_info(client, monkeypatch, code):
     monkeypatch.setattr("src.api.auth.service.authenticated_session", Mock(
-        side_effect=AuthError("unauthorized", "A valid session is required.", 401),
+        side_effect=AuthError(code, "A valid session is required.", 401),
     ))
     response = client.get("/appInfo", headers={"Authorization": "Bearer rejected-token"})
     assert response.status_code == 401
+    assert response.json["error"]["code"] == code
     assert "user" not in response.json
 
 

@@ -84,13 +84,17 @@ def authenticated_session(raw):
     now = utcnow()
     session = db.session.scalar(select(AuthSession).where(
         AuthSession.token_hash == hash_token(raw),
-        AuthSession.revoked_at.is_(None), AuthSession.expires_at > now,
-        # Apply the configured maximum age to sessions issued before a TTL change.
-        AuthSession.created_at > now - timedelta(seconds=current_app.config["SESSION_TTL_SECONDS"]),
     ))
-    if session is None:
+    if session is None or session.revoked_at is not None:
         raise AuthError("unauthorized", "A valid session is required.", 401)
-    return session, db.session.get(User, session.user_id)
+    # Also apply the configured maximum age to sessions issued before a TTL change.
+    if (session.expires_at <= now or
+            session.created_at <= now - timedelta(seconds=current_app.config["SESSION_TTL_SECONDS"])):
+        raise AuthError("session_expired", "Your login session expired. Please login to continue.", 401)
+    user = db.session.get(User, session.user_id)
+    if user is None:
+        raise AuthError("unauthorized", "A valid session is required.", 401)
+    return session, user
 
 
 def usable_token(raw, purpose):

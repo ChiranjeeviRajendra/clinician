@@ -1,15 +1,23 @@
 import { useAuthStore } from '../stores/auth.js'
+import { getReturnTo, loginLocation } from './session.js'
 
 export function installAuthGuards(router) {
   router.beforeEach(async (to) => {
     const auth = useAuthStore()
-    await auth.initializeApp({ allowAnonymous: !to.meta.requiresAuth && !auth.sessionToken })
+    const checkingSavedSession = auth.appStatus !== 'ready' && Boolean(auth.sessionToken || auth.loginReason)
+    if (to.meta.requiresAuth) auth.rememberPage(to.fullPath)
+    await auth.initializeApp()
     if (auth.appStatus !== 'ready') return false
     if (to.meta.requiresAuth && !auth.hasSession()) {
-      auth.denyAccess()
-      return false
+      return loginLocation(auth, to.fullPath)
     }
-    if (to.meta.guestOnly && auth.hasSession()) return { name: 'home' }
+    if (checkingSavedSession && auth.loginReason && to.name !== 'login') {
+      return { name: 'login', query: { reason: auth.loginReason } }
+    }
+    if (to.meta.guestOnly && auth.hasSession()) return getReturnTo(router, to.query.redirect, auth.returnTo)
+    if (to.name === 'login' && auth.loginReason && to.query.reason !== auth.loginReason) {
+      return { name: 'login', query: { ...to.query, reason: auth.loginReason } }
+    }
   })
 
   let expirationTimer
@@ -18,8 +26,11 @@ export function installAuthGuards(router) {
     clearTimeout(expirationTimer)
     const auth = useAuthStore()
     if (!to.meta.requiresAuth || !auth.hasSession()) return
+    auth.rememberPage(to.fullPath)
     expirationTimer = setTimeout(() => {
-      if (!auth.hasSession()) auth.denyAccess()
+      if (!auth.hasSession() && router.currentRoute.value.meta.requiresAuth) {
+        router.replace(loginLocation(auth, router.currentRoute.value.fullPath, 'expired'))
+      }
     }, Math.max(0, Date.parse(auth.expiresAt) - Date.now()))
   })
 }

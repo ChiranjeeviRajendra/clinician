@@ -28,9 +28,12 @@ afterEach(() => {
   else delete globalThis.sessionStorage
 })
 
-test('sign in loads the authenticated profile before establishing a session', async () => {
+test('sign in saves the token before requesting authenticated appInfo', async () => {
   mock.method(authApi, 'login', async () => session)
-  const profile = mock.method(appApi, 'info', async () => ({ user, expires_at: session.expires_at }))
+  const profile = mock.method(appApi, 'info', async () => {
+    assert.equal(JSON.parse(sessionStorage.getItem(SESSION_STORAGE_KEY)).sessionToken, session.session_token)
+    return { user, expires_at: session.expires_at }
+  })
   const auth = useAuthStore()
   await auth.signIn({ email: user.email, password: 'test-password' })
   assert.equal(profile.mock.calls[0].arguments[0], session.session_token)
@@ -151,11 +154,12 @@ test('blocked browser storage does not break login or logout', async () => {
     get() { throw new Error('Storage is blocked') },
   })
   mock.method(authApi, 'login', async () => session)
-  mock.method(appApi, 'info', async () => ({ user, expires_at: session.expires_at }))
+  const check = mock.method(appApi, 'info', async () => ({ user, expires_at: session.expires_at }))
   mock.method(authApi, 'logout', async () => null)
   const auth = useAuthStore()
   await auth.signIn({})
   assert.equal(auth.hasSession(), true)
+  assert.equal(check.mock.callCount(), 0)
   await auth.signOut()
   assert.equal(auth.isAuthenticated, false)
 })
