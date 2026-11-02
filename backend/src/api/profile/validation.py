@@ -1,3 +1,4 @@
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from ..auth.errors import AuthError
@@ -29,10 +30,18 @@ def profile_changes(body):
             if type(value) is not int or value not in ETHNICITIES:
                 raise AuthError("invalid_input", "Choose a listed ethnicity or leave it blank.")
             changes[field] = value
-        elif field == "age":
-            if type(value) is not int or not 0 <= value <= 150:
-                raise AuthError("invalid_input", "Age must be a whole number between 0 and 150.")
-            changes[field] = value
+        elif field == "date_of_birth":
+            if not isinstance(value, str):
+                raise AuthError("invalid_input", "Date of birth must be a valid date in YYYY-MM-DD format.")
+            try:
+                birth_date = date.fromisoformat(value)
+            except ValueError:
+                raise AuthError("invalid_input", "Date of birth must be a valid date in YYYY-MM-DD format.") from None
+            if birth_date.isoformat() != value:
+                raise AuthError("invalid_input", "Date of birth must be a valid date in YYYY-MM-DD format.")
+            if birth_date > datetime.now(timezone.utc).date():
+                raise AuthError("invalid_input", "Date of birth cannot be in the future.")
+            changes[field] = birth_date
         else:
             label, maximum = ("Height in cm", 300) if field == "height_cm" else ("Weight in kg", 1000)
             if type(value) not in (int, float):

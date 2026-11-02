@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { createPinia, setActivePinia } from 'pinia'
 import { authApi } from '../src/services/auth.js'
 import { userApi } from '../src/services/user.js'
+import { profileApi } from '../src/services/profile.js'
 import { ApiError } from '../src/services/http.js'
 import { SESSION_STORAGE_KEY, useAuthStore } from '../src/stores/auth.js'
 
@@ -21,6 +22,7 @@ beforeEach(() => {
     },
   })
   setActivePinia(createPinia())
+  mock.method(profileApi, 'getUserProfile', async () => ({ profile: { full_name: null } }))
 })
 afterEach(() => {
   mock.restoreAll()
@@ -60,6 +62,41 @@ test('stateless sign out clears credentials without a server call', async () => 
   assert.equal(logout.mock.callCount(), 0)
   assert.equal(auth.isAuthenticated, false)
   assert.equal(sessionStorage.getItem(SESSION_STORAGE_KEY), null)
+})
+
+test('display names prefer a trimmed full name and use email when cleared', async () => {
+  mock.method(authApi, 'login', async () => session)
+  const auth = useAuthStore()
+  await auth.signIn({})
+  assert.equal(auth.displayName, user.email)
+  auth.setProfileName('  Asha Patel  ', session.session_token)
+  assert.equal(auth.displayName, 'Asha Patel')
+  assert.equal(JSON.parse(sessionStorage.getItem(SESSION_STORAGE_KEY)).fullName, 'Asha Patel')
+  setActivePinia(createPinia())
+  const restored = useAuthStore()
+  assert.equal(restored.displayName, 'Asha Patel')
+  restored.setProfileName('   ', session.session_token)
+  assert.equal(restored.displayName, user.email)
+  assert.equal(JSON.parse(sessionStorage.getItem(SESSION_STORAGE_KEY)).fullName, null)
+  restored.setProfileName('Asha Patel', session.session_token)
+  restored.setProfileName(null, session.session_token)
+  assert.equal(restored.displayName, user.email)
+})
+
+test('a late profile response cannot set the display name of another session', async () => {
+  mock.method(authApi, 'login', async () => session)
+  const auth = useAuthStore()
+  await auth.signIn({})
+  auth.setProfileName('Asha Patel', session.session_token)
+  await auth.signOut()
+  assert.equal(auth.fullName, null)
+  assert.equal(auth.displayName, '')
+  const otherUser = { email: 'another@example.com' }
+  mock.method(authApi, 'login', async () => ({ ...session, user: otherUser, session_token: 'other-token' }))
+  await auth.signIn({})
+  auth.setProfileName('Asha Patel', session.session_token)
+  assert.equal(auth.displayName, otherUser.email)
+  assert.equal(auth.fullName, null)
 })
 
 test('expired credentials cannot pass the client route guard', () => {

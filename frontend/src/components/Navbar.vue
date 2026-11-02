@@ -12,7 +12,7 @@
       </RouterLink>
     </nav>
     <div class="nav-account">
-      <span class="account-email">{{ auth.user?.email }}</span>
+      <span class="account-name">{{ auth.displayName }}</span>
       <span class="account-avatar" aria-hidden="true">{{ initial }}</span>
       <button class="text-button" :disabled="pending" @click="signOut">
         {{ pending ? 'Signing out…' : 'Sign out' }}
@@ -29,11 +29,13 @@ import BrandMark from './BrandMark.vue'
 import { useAuthStore } from '../stores/auth.js'
 import { navigateTo } from '../router/navigation.js'
 
+defineOptions({ name: 'WorkspaceNavbar' })
+
 const router = useRouter()
 const auth = useAuthStore()
 const pending = ref(false)
 const error = ref('')
-const initial = computed(() => (auth.user?.email || 'U')[0].toUpperCase())
+const initial = computed(() => (auth.displayName || 'U')[0].toUpperCase())
 const selectedPath = computed(() => router.resolve(auth.pendingRoute || router.currentRoute.value.fullPath).path)
 const navigation = [
   { path: '/chat', label: 'Chat with AI' },

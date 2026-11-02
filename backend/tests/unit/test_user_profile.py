@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import uuid
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from io import StringIO
 from pathlib import Path
@@ -23,7 +24,7 @@ from src.api.profile.validation import profile_changes
 
 
 def complete_profile(user_id):
-    return UserProfile(id=user_id, full_name="Asha Patel", age=30, gender=2,
+    return UserProfile(id=user_id, full_name="Asha Patel", date_of_birth=date(1996, 1, 15), gender=2,
                        height_cm=Decimal("170.25"), weight_kg=Decimal("65.50"),
                        ethnicity=11)
 
@@ -104,7 +105,7 @@ def test_deleted_account_cannot_access_profiles(api, method, path):
     client, headers, _ = api
     db.session.get.return_value = None
     db.session.get.side_effect = None
-    response = getattr(client, method)(path, headers=headers, **({"json": {"age": 30}} if method == "patch" else {}))
+    response = getattr(client, method)(path, headers=headers, **({"json": {"date_of_birth": "1996-01-15"}} if method == "patch" else {}))
     assert response.status_code == 401
     db.session.scalar.assert_not_called()
     db.session.commit.assert_not_called()
@@ -121,22 +122,24 @@ def test_get_returns_saved_profile_for_authenticated_user(api):
     assert response.json["profile"]["gender"] == 2
     assert response.json["profile"]["ethnicity"] == 11
     assert response.json["profile"]["ethnicity_name"] == "South Asian"
+    assert response.json["profile"]["date_of_birth"] == "1996-01-15"
+    assert "age" not in response.json["profile"]
     assert [call.args for call in db.session.get.call_args_list] == [(User, user.id), (UserProfile, user.id)]
 
 
 def test_partial_update_upserts_only_supplied_fields_for_current_user(api):
     client, headers, user = api
     profile = complete_profile(user.id)
-    profile.age = 31
+    profile.date_of_birth = date(1995, 2, 20)
     db.session.scalar.return_value = profile
-    response = client.patch("/updateUserProfile", headers=headers, json={"age": 31})
+    response = client.patch("/updateUserProfile", headers=headers, json={"date_of_birth": "1995-02-20"})
     assert response.status_code == 200
     assert response.json["profile"]["full_name"] == "Asha Patel"
-    assert response.json["profile"]["age"] == 31
+    assert response.json["profile"]["date_of_birth"] == "1995-02-20"
     assert response.json["profile"]["isProfileCompleted"] is True
     statement = db.session.scalar.call_args.args[0].compile(dialect=postgresql.dialect())
-    assert statement.params == {"id": user.id, "age": 31, "param_1": 31}
-    assert "ON CONFLICT (id) DO UPDATE SET age =" in str(statement)
+    assert statement.params == {"id": user.id, "date_of_birth": date(1995, 2, 20), "param_1": date(1995, 2, 20)}
+    assert "ON CONFLICT (id) DO UPDATE SET date_of_birth =" in str(statement)
     assert response.headers["Cache-Control"] == "no-store"
     db.session.commit.assert_called_once()
 
@@ -165,7 +168,12 @@ def test_empty_update_is_a_read_only_noop(api):
 
 
 @pytest.mark.parametrize("body", [
-    {"age": -1}, {"age": 151}, {"age": 30.5}, {"age": True}, {"age": "30"},
+    {"age": 30}, {"date_of_birth": 19960115}, {"date_of_birth": True}, {"date_of_birth": []},
+    {"date_of_birth": "1996-02-30"}, {"date_of_birth": "1900-02-29"},
+    {"date_of_birth": "1996-13-01"}, {"date_of_birth": "0000-01-01"},
+    {"date_of_birth": "19960115"}, {"date_of_birth": "1996-W03-1"},
+    {"date_of_birth": "15/01/1996"}, {"date_of_birth": "1996-01-15T00:00:00Z"},
+    {"date_of_birth": "9999-12-31"},
     {"height_cm": 0}, {"height_cm": 301}, {"height_cm": 170.123},
     {"height_cm": "170 cm"}, {"height_cm": True}, {"weight_kg": -10},
     {"weight_kg": 1001}, {"weight_kg": []}, {"full_name": 12}, {"full_name": "a" * 201},
@@ -174,7 +182,7 @@ def test_empty_update_is_a_read_only_noop(api):
     {"gender": 3}, {"gender": True}, {"gender": 1.0},
     {"ethnicity": "Asian"}, {"ethnicity": "1"}, {"ethnicity": 0},
     {"ethnicity": True}, {"ethnicity": 1.0}, {"ethnicity": []}, {"ethnicity": 17},
-    {"isProfileCompleted": True}, {"age": 30, "weight_kg": -1}, [], None,
+    {"isProfileCompleted": True}, {"date_of_birth": "1996-01-15", "weight_kg": -1}, [], None,
 ])
 def test_invalid_updates_are_rejected_before_database_access(api, body):
     client, headers, _ = api
@@ -192,14 +200,13 @@ def test_nonfinite_measurements_are_rejected(number):
         profile_changes({"height_cm": number})
 
 
-def test_blank_and_null_fields_clear_details_and_zero_age_is_valid():
+def test_blank_and_null_fields_clear_details_and_birth_dates_are_optional():
     assert profile_changes(dict.fromkeys(PROFILE_FIELDS, "  ")) == dict.fromkeys(PROFILE_FIELDS)
     assert profile_changes(dict.fromkeys(PROFILE_FIELDS)) == dict.fromkeys(PROFILE_FIELDS)
-    assert profile_changes({"age": 0, "height_cm": 170.25, "weight_kg": 65}) == {
-        "age": 0, "height_cm": Decimal("170.25"), "weight_kg": Decimal("65"),
+    assert profile_changes({"date_of_birth": "2000-02-29", "height_cm": 170.25, "weight_kg": 65}) == {
+        "date_of_birth": date(2000, 2, 29), "height_cm": Decimal("170.25"), "weight_kg": Decimal("65"),
     }
     profile = complete_profile(uuid.uuid4())
-    profile.age = 0
     assert profile.is_profile_completed is True
     for field in PROFILE_FIELDS:
         profile = complete_profile(uuid.uuid4())
@@ -210,6 +217,28 @@ def test_blank_and_null_fields_clear_details_and_zero_age_is_valid():
     assert profile.is_profile_completed is False
 
 
+def test_birth_date_today_is_valid_and_tomorrow_is_rejected(monkeypatch):
+    clock = Mock()
+    clock.now.return_value = datetime(2026, 11, 3, 12, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr("src.api.profile.validation.datetime", clock)
+    assert profile_changes({"date_of_birth": "2026-11-03"}) == {"date_of_birth": date(2026, 11, 3)}
+    with pytest.raises(AuthError, match="Date of birth cannot be in the future"):
+        profile_changes({"date_of_birth": "2026-11-04"})
+    clock.now.assert_called_with(timezone.utc)
+
+
+def test_birth_date_can_be_cleared_and_completion_becomes_false(api):
+    client, headers, user = api
+    profile = complete_profile(user.id)
+    profile.date_of_birth = None
+    db.session.scalar.return_value = profile
+    response = client.patch("/updateUserProfile", headers=headers, json={"date_of_birth": None})
+    assert response.status_code == 200
+    assert response.json["profile"]["date_of_birth"] is None
+    assert response.json["profile"]["isProfileCompleted"] is False
+    assert db.session.scalar.call_args.args[0].compile().params["date_of_birth"] is None
+
+
 def test_profile_schema_uses_users_primary_key_and_cascading_foreign_key():
     table = UserProfile.__table__
     assert list(table.primary_key.columns.keys()) == ["id"]
@@ -217,11 +246,14 @@ def test_profile_schema_uses_users_primary_key_and_cascading_foreign_key():
     assert foreign_key.target_fullname == "users.id"
     assert foreign_key.ondelete == "CASCADE"
     assert all(table.c[field].nullable for field in PROFILE_FIELDS)
+    assert "age" not in table.c
+    assert str(table.c.date_of_birth.type) == "DATE"
     assert str(table.c.gender.type) == "SMALLINT"
     assert str(table.c.ethnicity.type) == "INTEGER"
     checks = {constraint.name: str(constraint.sqltext) for constraint in table.constraints if hasattr(constraint, "sqltext")}
     assert checks["ck_user_profile_valid_gender"] == "gender IN (1, 2)"
     assert checks["ck_user_profile_valid_ethnicity"] == "ethnicity > 0"
+    assert "ck_user_profile_valid_age" not in checks
 
 
 def test_ethnicity_catalog_preserves_all_original_choices_with_stable_ids():
@@ -299,3 +331,29 @@ def test_migration_generates_profile_sql_offline():
     assert "FOREIGN KEY(id) REFERENCES users (id) ON DELETE CASCADE" in sql
     assert "ck_user_profile_valid_height_cm" in sql
     assert "weight_kg NUMERIC(6, 2)" in sql
+
+
+def test_birth_date_migration_generates_sql_without_fabricating_dates():
+    path = Path(__file__).resolve().parents[2] / "migrations" / "versions" / "0006_profile_date_of_birth.py"
+    spec = importlib.util.spec_from_file_location("birth_date_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    output = StringIO()
+    context = MigrationContext.configure(dialect_name="postgresql", opts={"as_sql": True, "output_buffer": output})
+    with Operations.context(context):
+        migration.upgrade()  # Emits SQL into memory only.
+    sql = output.getvalue()
+    assert migration.down_revision == "0005_profile_choice_ids"
+    assert "ADD COLUMN date_of_birth DATE" in sql
+    assert "DROP CONSTRAINT ck_user_profile_valid_age" in sql
+    assert "DROP COLUMN age" in sql
+    assert "DEFAULT" not in sql
+    assert "UPDATE user_profile" not in sql
+    output.truncate(0)
+    output.seek(0)
+    with Operations.context(context):
+        migration.downgrade()
+    sql = output.getvalue()
+    assert "ADD COLUMN age INTEGER" in sql
+    assert "CHECK (age >= 0 AND age <= 150)" in sql
+    assert "DROP COLUMN date_of_birth" in sql

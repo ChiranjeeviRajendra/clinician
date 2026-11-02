@@ -1,5 +1,14 @@
-const fields = ['full_name', 'age', 'gender', 'height_cm', 'weight_kg', 'ethnicity']
-const numericFields = new Set(['age', 'gender', 'height_cm', 'weight_kg', 'ethnicity'])
+const fields = ['full_name', 'date_of_birth', 'gender', 'height_cm', 'weight_kg', 'ethnicity']
+const numericFields = new Set(['gender', 'height_cm', 'weight_kg', 'ethnicity'])
+
+export function formatDateOfBirth(value, locale) {
+  if (!value) return 'Not added'
+  const date = new Date(`${value}T00:00:00Z`)
+  if (Number.isNaN(date.getTime())) return 'Not added'
+  return new Intl.DateTimeFormat(locale, {
+    year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC',
+  }).format(date)
+}
 
 export const PROFILE_GENDERS = Object.freeze([
   { id: 1, name: 'Male' },

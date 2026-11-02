@@ -8,22 +8,20 @@
     </header>
 
     <p v-if="loading" class="profile-loading" role="status">Loading your profile...</p>
-    <div v-if="error" class="notice error" role="alert">
+    <div v-if="error && !profile" class="notice error" role="alert">
       <p>{{ error }}</p>
       <button v-if="!profile" class="inline-button" :disabled="loading" @click="load">Try again</button>
     </div>
-    <p v-if="success" class="notice success" role="status">{{ success }}</p>
-
-    <form v-if="profile && !loading" class="profile-card" :aria-busy="saving" @submit.prevent="submit" @input="success = ''" @change="success = ''">
-      <fieldset class="profile-fields" :disabled="saving">
+    <form v-if="profile && !loading" class="profile-card" :aria-busy="pending" @submit.prevent="submit">
+      <fieldset class="profile-fields" :disabled="pending">
         <legend class="sr-only">Optional personal details</legend>
         <div class="field profile-full-width">
           <label for="profile-name">Full name</label>
           <input id="profile-name" v-model="form.full_name" name="full_name" autocomplete="name" maxlength="200" placeholder="Your full name" />
         </div>
         <div class="field">
-          <label for="profile-age">Age (years)</label>
-          <input id="profile-age" v-model="form.age" name="age" type="number" inputmode="numeric" min="0" max="150" step="1" placeholder="e.g. 30" />
+          <label for="profile-date-of-birth">Date of birth</label>
+          <input id="profile-date-of-birth" v-model="form.date_of_birth" name="date_of_birth" type="date" autocomplete="bday" min="0001-01-01" :max="today" />
         </div>
         <div class="field">
           <label for="profile-gender">Gender</label>
@@ -50,8 +48,8 @@
         </div>
       </fieldset>
       <div class="profile-form-actions">
-        <button type="submit" class="primary-button" :disabled="saving">
-          <span>{{ saving ? 'Saving...' : 'Save profile' }}</span><span aria-hidden="true">&rarr;</span>
+        <button type="submit" class="primary-button" :disabled="pending">
+          <span>{{ pending ? 'Saving...' : 'Save profile' }}</span><span aria-hidden="true">&rarr;</span>
         </button>
         <RouterLink :to="{ name: 'profile' }" class="back-link">Back to profile</RouterLink>
       </div>
@@ -60,25 +58,8 @@
 </template>
 
 <script setup>
-import { reactive, ref, watch } from 'vue'
-import { useUserProfile } from '../composables/useUserProfile.js'
-import { PROFILE_GENDERS, profileChanges, profileForm } from '../utils/profile.js'
+import { useProfileEditor } from '../composables/useProfileEditor.js'
+import { PROFILE_GENDERS } from '../utils/profile.js'
 
-const { profile, options, loading, saving, error, load, save } = useUserProfile({ includeOptions: true })
-const form = reactive({})
-const success = ref('')
-
-watch(profile, (value) => {
-  if (value) Object.assign(form, profileForm(value))
-})
-
-async function submit() {
-  if (saving.value) return
-  success.value = ''
-  if (await save(profileChanges(form, profile.value))) {
-    success.value = profile.value.isProfileCompleted
-      ? 'Profile saved. Your profile is complete.'
-      : 'Profile saved. You can add more details anytime.'
-  }
-}
+const { profile, options, loading, pending, error, load, form, today, submit } = useProfileEditor()
 </script>

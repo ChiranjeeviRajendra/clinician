@@ -38,10 +38,13 @@ export function useAccountValidation(fields, mode) {
     touched.value[field] = true
   }
 
-  function validate() {
+  function validate(onInvalid) {
     submitted.value = true
     const firstInvalid = Object.keys(errors.value)[0]
-    if (firstInvalid) form.value?.elements.namedItem(firstInvalid)?.focus()
+    if (firstInvalid) {
+      form.value?.elements.namedItem(firstInvalid)?.focus()
+      onInvalid?.(errors.value[firstInvalid])
+    }
     return !firstInvalid
   }
 

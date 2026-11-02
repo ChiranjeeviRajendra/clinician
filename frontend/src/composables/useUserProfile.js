@@ -28,13 +28,16 @@ export function useUserProfile({ includeOptions = false } = {}) {
     loading.value = true
     error.value = ''
     try {
+      const token = auth.sessionToken
       const requestOptions = { signal: controller.signal }
       const [response, ethnicities] = await Promise.all([
-        profileApi.getUserProfile(auth.sessionToken, requestOptions),
-        includeOptions ? profileApi.getEthnicities(auth.sessionToken, requestOptions) : null,
+        profileApi.getUserProfile(token, requestOptions),
+        includeOptions ? profileApi.getEthnicities(token, requestOptions) : null,
       ])
+      if (controller.signal.aborted) return
       if (includeOptions) options.value = { ethnicities: ethnicities.ethnicities }
       profile.value = response.profile
+      auth.setProfileName(response.profile.full_name, token)
     } catch (failure) {
       await handleError(failure)
     } finally {
@@ -47,8 +50,11 @@ export function useUserProfile({ includeOptions = false } = {}) {
     saving.value = true
     error.value = ''
     try {
-      const response = await profileApi.updateUserProfile(changes, auth.sessionToken, { signal: controller.signal })
+      const token = auth.sessionToken
+      const response = await profileApi.updateUserProfile(changes, token, { signal: controller.signal })
+      if (controller.signal.aborted) return false
       profile.value = response.profile
+      auth.setProfileName(response.profile.full_name, token)
       return true
     } catch (failure) {
       await handleError(failure)

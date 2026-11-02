@@ -6,6 +6,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { installAuthGuards } from '../src/router/guards.js'
 import { userApi } from '../src/services/user.js'
 import { authApi } from '../src/services/auth.js'
+import { profileApi } from '../src/services/profile.js'
 import { ApiError } from '../src/services/http.js'
 import { getReturnTo } from '../src/router/session.js'
 import { navigateTo } from '../src/router/navigation.js'
@@ -30,6 +31,7 @@ beforeEach(() => {
   })
   setActivePinia(createPinia())
   mock.method(userApi, 'info', async () => userInfo)
+  mock.method(profileApi, 'getUserProfile', async () => ({ profile: { full_name: null } }))
   router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -111,6 +113,31 @@ test('userInfo is cached across routes and fetched again for a new session and o
   setActivePinia(createPinia())
   await router.push('/chat')
   assert.equal(accountInfo.mock.callCount(), 3)
+})
+
+test('session startup loads the full name for every page and caches it across routes', async () => {
+  savedSession()
+  mock.method(authApi, 'authenticate', async () => info)
+  const lookup = mock.method(profileApi, 'getUserProfile', async () => ({ profile: { full_name: 'Asha Patel' } }))
+  await router.push('/home')
+  const auth = useAuthStore()
+  assert.equal(auth.displayName, 'Asha Patel')
+  assert.deepEqual(auth.userInfo, userInfo)
+  await router.push('/chat')
+  assert.equal(lookup.mock.callCount(), 1)
+  assert.equal(auth.displayName, 'Asha Patel')
+})
+
+test('a temporary profile failure leaves the rest of the app available with the email fallback', async () => {
+  savedSession()
+  mock.method(authApi, 'authenticate', async () => info)
+  mock.method(profileApi, 'getUserProfile', async () => { throw new ApiError('Unavailable', 503) })
+  await router.push('/home')
+  const auth = useAuthStore()
+  assert.equal(auth.appStatus, 'ready')
+  assert.equal(auth.displayName, user.email)
+  assert.equal(auth.appError, '')
+  assert.equal(router.currentRoute.value.name, 'home')
 })
 
 test('signing in as another account loads its userInfo and replaces cached account details', async () => {

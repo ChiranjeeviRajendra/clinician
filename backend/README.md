@@ -151,7 +151,7 @@ the current structure; the existing `python template.py` command delegates to it
 | Table | Data |
 | --- | --- |
 | `users` | UUID, unique normalized email, password hash, verification time, timestamps |
-| `user_profile` | User UUID as primary/foreign key, optional full name, age, numeric gender and ethnicity IDs, height in cm, weight in kg |
+| `user_profile` | User UUID as primary/foreign key, optional full name, date of birth, numeric gender and ethnicity IDs, height in cm, weight in kg |
 | `auth_tokens` | UUID, user foreign key, unique hashed token, purpose, expiry and consumption timestamps |
 | `alembic_version` | Applied migration revision |
 
@@ -176,7 +176,7 @@ except the empty `204` logout response. Errors have the shape
 | `GET /auth/me` | None; requires Bearer token | `200`: `{"user":{...}}` |
 | `GET /getUserProfile` | None; requires Bearer token | `200`: only `profile`, including `isProfileCompleted` |
 | `GET /getEthnicities` | None; requires Bearer JWT; no database access | `200`: `{"ethnicities":[{"id":1,"name":"Aboriginal or Torres Strait Islander"},...]}` |
-| `PATCH /updateUserProfile` | Any subset of `full_name`, `age`, `gender`, `height_cm`, `weight_kg`, `ethnicity`; requires Bearer token | `200`: updated `profile` including `isProfileCompleted` |
+| `PATCH /updateUserProfile` | Any subset of `full_name`, `date_of_birth`, `gender`, `height_cm`, `weight_kg`, `ethnicity`; requires Bearer token | `200`: updated `profile` including `isProfileCompleted` |
 | `POST /auth/verify-email` | `{"token":"TOKEN_FROM_EMAIL"}` | `200`: email verified |
 | `POST /auth/forgot-password` | `{"email":"doctor@example.com"}` | `202`: same message whether an account exists |
 | `POST /auth/reset-password` | `{"token":"TOKEN_FROM_EMAIL","password":"new-secure-password"}` | `200`: password updated; existing JWTs remain valid until expiry |
@@ -290,9 +290,10 @@ inserting a row. Profile updates use an atomic upsert keyed by the current user'
 ID, including concurrent first saves. Clients cannot update identity or completion.
 
 `isProfileCompleted` is calculated by the backend on every response and is true
-when all six details are present. An age of zero is valid. "Other" and "Prefer
+when all six details are present, including date of birth. "Other" and "Prefer
 not to say" count as filled ethnicity choices. Full names are trimmed and limited
-to 200 characters; age must be an integer from 0 to 150; height must be greater
+to 200 characters; date of birth must be a real calendar date in `YYYY-MM-DD`
+format, no later than today in UTC (the same limit used by the form); height must be greater
 than 0 and at most 300 cm; weight must be greater than 0 and at most 1000 kg.
 Measurements accept up to two decimal places. Gender accepts only integer IDs
 `1` (Male) and `2` (Female); those choices are hardcoded in the UI. There is no
@@ -308,7 +309,11 @@ Profile responses keep `gender` and `ethnicity` as numeric IDs and also include
 the user's `ethnicity_name` for display. The summary uses its local gender labels
 and that ethnicity name, so it still fetches only user information. The update
 form fetches profile details and ethnicity choices in parallel and saves IDs.
-Strings, booleans, fractions, and unknown IDs are rejected before persistence.
+Strings, booleans, fractions, and unknown IDs are rejected for numeric selections
+before persistence. Birth dates are stored in a nullable PostgreSQL `DATE` column
+and serialized as date-only ISO strings, with no timezone conversion. `null` or a
+blank value clears a saved birth date. The old `age` API property is no longer
+accepted or returned.
 
 Migration `0004_user_profile` is **prepared, not applied**. It adds only
 `user_profile`, with `id` as both its primary key and a foreign key to `users.id`
@@ -317,7 +322,7 @@ root, apply it manually when ready:
 
 ```powershell
 cd backend
-.venv\Scripts\python.exe -m flask --app app db upgrade 0005_profile_choice_ids
+.venv\Scripts\python.exe -m flask --app app db upgrade 0006_profile_date_of_birth
 ```
 
 This also applies any pending earlier migrations; review those before upgrading.
@@ -341,6 +346,22 @@ Review this conversion before applying the migration manually. Preview it offlin
 
 ```powershell
 .venv\Scripts\python.exe -m flask --app app db upgrade 0004_user_profile:0005_profile_choice_ids --sql
+```
+
+Migration `0006_profile_date_of_birth` is **prepared, not applied**. It adds the
+nullable `date_of_birth` column and removes `age` and its check constraint. Existing
+ages are discarded when you apply it; no exact birth dates can be inferred from
+an age, so all existing birth dates start as null. Users can fill them in later,
+and completion remains false until all six details, including birth date, exist.
+Earlier migrations remain unchanged. The manual upgrade command above applies
+all pending migrations through `0006_profile_date_of_birth`.
+
+Downgrading recreates a nullable age column without recovering previous ages and
+discards entered birth dates. Preview the forward migration without connecting
+to or changing a database:
+
+```powershell
+.venv\Scripts\python.exe -m flask --app app db upgrade 0005_profile_choice_ids:0006_profile_date_of_birth --sql
 ```
 
 ## Development email

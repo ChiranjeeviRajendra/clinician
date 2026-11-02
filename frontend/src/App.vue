@@ -1,5 +1,6 @@
 <template>
   <div class="app-shell">
+    <AppNotification />
     <Navbar v-if="showNavigation" />
     <div class="route-region" :class="{ 'with-navigation': showNavigation }">
       <div :inert="auth.isRouteLoading" :aria-busy="auth.isRouteLoading">
@@ -27,6 +28,7 @@
 import { useRoute, useRouter } from 'vue-router'
 import { computed } from 'vue'
 import Navbar from './components/Navbar.vue'
+import AppNotification from './components/AppNotification.vue'
 import { useAuthStore } from './stores/auth.js'
 const route = useRoute()
 const router = useRouter()

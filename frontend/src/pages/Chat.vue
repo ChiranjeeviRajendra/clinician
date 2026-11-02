@@ -63,6 +63,8 @@ import { useAuthStore } from '../stores/auth.js'
 import { sendMessage } from '../services/chat.js'
 import { loginLocation } from '../router/session.js'
 
+defineOptions({ name: 'MedicalChatPage' })
+
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
@@ -73,7 +75,7 @@ const error = ref('')
 const lastQuestion = ref('')
 const scrollArea = ref(null)
 const composer = ref(null)
-const userInitial = computed(() => (auth.user?.email || 'Y')[0].toUpperCase())
+const userInitial = computed(() => (auth.displayName || 'Y')[0].toUpperCase())
 const conversationTitle = computed(() => messages.value[0]?.content || 'Your first conversation')
 const suggestions = [
   { category: 'UNDERSTAND THE BASICS', question: 'What is hypertension?' },

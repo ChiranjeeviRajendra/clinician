@@ -34,22 +34,29 @@ Vite requires port 5173 so it matches the backend's default email-link URL.
   Forms validate required fields and email format before sending requests.
   Registration and password reset require a matching confirm-password field
   and passwords of 8–128 characters. Confirmation is checked only in the UI
-  and is not sent to the backend or stored. Field errors appear on blur or submit
-  and update while the user corrects them.
+  and is not sent to the backend or stored. Validation errors on this page appear
+  in the global popup when submitted, and focus moves to the first invalid field.
+  Invalid-field highlighting updates while the user corrects the values.
   The server also validates new passwords and email syntax. API failures with
-  `weak_password` or `invalid_email` display the server's message in the form.
+  `weak_password` or `invalid_email` display the server's message in the global
+  popup. Sign-in failures and session-expired/access notices use the same popup;
+  inline error banners and field-error text have been removed from this page.
 - `/home`: default landing page when no previous page is saved, with links to Chat with AI,
   Profile, and Faxes. The Clinician logo returns to this page.
 - `/profile`: authenticated personal details and backend completion status. The
   "Complete your profile" button opens `/update-profile`; completed profiles can
   still be edited with "Update your profile".
-- `/update-profile`: optional full name, age, gender, height in cm, weight in kg,
+- `/update-profile`: optional full name, date of birth, gender, height in cm, weight in kg,
   and ethnicity. Gender is hardcoded as Male (`1`) and Female (`2`). Loads saved
   details from `GET /getUserProfile` and `{id, name}` ethnicity choices separately
   from `GET /getEthnicities` in parallel; both dropdowns save numeric IDs;
   saves only changed fields with `PATCH /updateUserProfile`. Blank values clear
   saved details, and partial profiles can be saved and completed later. Requires
-  the manually applied backend migrations through `0005_profile_choice_ids`.
+  the manually applied backend migrations through `0006_profile_date_of_birth`.
+  Date of birth uses a date picker, saves as `YYYY-MM-DD`, and displays without a
+  timezone shift. Future dates are rejected; clearing the field saves null.
+  Successful saves return to `/profile` and show a global success popup for three
+  seconds. Failed saves show an error popup and preserve the form's edits.
 - `/faxes`: empty authenticated page reserved for future work.
 - `/verify-email#token=...`: confirm the verification link sent after registration.
   Accounts must verify their email before login.
@@ -69,6 +76,11 @@ Known local expiry clears the token immediately. A successful initial authentica
 is followed by `GET /userInfo`, returning only `email`, `email_verified`, and
 `expires_at`. User information is cached in memory for the current session across
 routes. Logout or expiry clears it; a new session or browser refresh loads it again.
+Startup also reads `GET /getUserProfile` to display the full name in the account
+area and use it for avatar initials. A missing or blank name falls back to email.
+The name is cached for the current session and updated immediately after profile
+saves, including when the user clears it. A temporary profile-fetch failure leaves
+the rest of the app available. The `/userInfo` response still has only its three fields.
 Failed or canceled bootstrap calls can be retried and are never cached as success.
 
 The loading overlay covers only the routed content; the navbar stays clickable.
@@ -102,6 +114,18 @@ are rejected after switching to JWTs, so existing users must sign in again.
 Conversations are held in the current page's memory and are not saved to the database.
 New conversation clears the visible messages. The model continues to answer each
 question independently using the existing reference retrieval pipeline.
+
+## Global notifications
+
+`AppNotification` is mounted once in `App.vue`, above routed content. It displays
+small success, warning, and error popups at the top of the viewport, including
+across page navigation. Each message dismisses after three seconds or when its
+close button is clicked. A newer message replaces the current one and gets its
+own three-second timer.
+
+Any component or composable can use `useNotificationsStore()` from
+`src/stores/notifications.js` and call `success(message)`, `warning(message)`, or
+`error(message)`.
 
 ## Structure
 

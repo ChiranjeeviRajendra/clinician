@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { authApi } from '../services/auth.js'
 import { userApi } from '../services/user.js'
+import { profileApi } from '../services/profile.js'
 
 export const SESSION_STORAGE_KEY = 'clinician.auth.session'
 export const RETURN_TO_STORAGE_KEY = 'clinician.auth.returnTo'
@@ -60,6 +61,8 @@ export const useAuthStore = defineStore('auth', () => {
   const restored = restoreSession()
   const saved = restored.session
   const user = ref(saved?.user ?? null)
+  const fullName = ref(typeof saved?.fullName === 'string' ? saved.fullName.trim() || null : null)
+  const displayName = computed(() => fullName.value || user.value?.email || '')
   const sessionToken = ref(saved?.sessionToken ?? null)
   const expiresAt = ref(saved?.expiresAt ?? null)
   const userInfo = ref(null)
@@ -79,6 +82,7 @@ export const useAuthStore = defineStore('auth', () => {
     sessionVersion += 1
     initialization?.controller.abort()
     user.value = null
+    fullName.value = null
     sessionToken.value = null
     expiresAt.value = null
     userInfo.value = null
@@ -120,8 +124,15 @@ export const useAuthStore = defineStore('auth', () => {
         throw error
       }
       // Reuse account information only for the session that loaded it.
-      const info = userInfoToken === token ? null : await userApi.info(token, { signal })
-      return { authentication, info }
+      const [info, profileResponse] = userInfoToken === token ? [null, null] : await Promise.all([
+        userApi.info(token, { signal }),
+        profileApi.getUserProfile(token, { signal, routeScoped: false }).catch((error) => {
+          // Profile availability does not block access to the rest of the app.
+          if (error.status === 401 || error.code === 'request_cancelled' || signal?.aborted) throw error
+          return null
+        }),
+      ])
+      return { authentication, info, profile: profileResponse?.profile }
     } finally {
       finish()
       signal?.removeEventListener('abort', finish)
@@ -139,20 +150,31 @@ export const useAuthStore = defineStore('auth', () => {
     if (sessionToken.value !== token) {
       userInfo.value = null
       userInfoToken = null
+      fullName.value = null
     }
     user.value = profile
     sessionVersion += 1
     sessionToken.value = token
     expiresAt.value = new Date(expiry).toISOString()
+    return persistSession()
+  }
+
+  function persistSession() {
     try {
       globalThis.sessionStorage?.setItem(SESSION_STORAGE_KEY, JSON.stringify({
-        user: user.value, sessionToken: sessionToken.value, expiresAt: expiresAt.value,
+        user: user.value, fullName: fullName.value, sessionToken: sessionToken.value, expiresAt: expiresAt.value,
       }))
-      return savedToken() === token
+      return savedToken() === sessionToken.value
     } catch {
       // The active session remains usable if the browser blocks storage.
       return false
     }
+  }
+
+  function setProfileName(name, token) {
+    if (!token || token !== sessionToken.value) return
+    fullName.value = typeof name === 'string' ? name.trim() || null : null
+    persistSession()
   }
 
   async function initializeApp({ force = false, signal, initialLogin = false } = {}) {
@@ -189,7 +211,7 @@ export const useAuthStore = defineStore('auth', () => {
     signal?.addEventListener('abort', abort, { once: true })
     request.promise = (async () => {
       try {
-        const { authentication, info } = await loadStartup(token, { signal: request.controller.signal })
+        const { authentication, info, profile } = await loadStartup(token, { signal: request.controller.signal })
         if (request.controller.signal.aborted || initialization !== request || validationVersion !== sessionVersion) return
         const previousExpiry = Date.parse(expiresAt.value)
         const account = info ? { email: info.email, email_verified: info.email_verified } : user.value
@@ -201,6 +223,7 @@ export const useAuthStore = defineStore('auth', () => {
           userInfo.value = { email: info.email, email_verified: info.email_verified, expires_at: info.expires_at }
           userInfoToken = token
         }
+        if (profile) setProfileName(profile.full_name, token)
         loginReason.value = ''
         appStatus.value = 'ready'
       } catch (error) {
@@ -255,8 +278,8 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   return {
-    user, sessionToken, expiresAt, userInfo, appStatus, appError, isRouteLoading, loginReason, returnTo, pendingRoute,
+    user, fullName, displayName, sessionToken, expiresAt, userInfo, appStatus, appError, isRouteLoading, loginReason, returnTo, pendingRoute,
     isAuthenticated, hasSession, clearSession, signIn, signOut,
-    initializeApp, endSession, rememberPage,
+    initializeApp, endSession, rememberPage, setProfileName,
   }
 })

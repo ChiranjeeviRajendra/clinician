@@ -15,14 +15,13 @@
     <div v-if="profile && !loading" class="profile-card">
       <div class="profile-card-heading">
         <div>
-          <h2>{{ profile.full_name || 'Personal details' }}</h2>
-          <p class="profile-email">{{ auth.user?.email }}</p>
+          <h2>{{ auth.displayName || 'Personal details' }}</h2>
         </div>
         <span class="profile-status">{{ profile.isProfileCompleted ? 'Profile complete' : 'Profile incomplete' }}</span>
       </div>
       <dl class="profile-details">
         <div><dt>Full name</dt><dd>{{ profile.full_name ?? 'Not added' }}</dd></div>
-        <div><dt>Age</dt><dd>{{ profile.age == null ? 'Not added' : `${profile.age} years` }}</dd></div>
+        <div><dt>Date of birth</dt><dd>{{ formatDateOfBirth(profile.date_of_birth) }}</dd></div>
         <div><dt>Gender</dt><dd>{{ genderLabel(profile.gender) }}</dd></div>
         <div><dt>Height</dt><dd>{{ profile.height_cm == null ? 'Not added' : `${profile.height_cm} cm` }}</dd></div>
         <div><dt>Weight</dt><dd>{{ profile.weight_kg == null ? 'Not added' : `${profile.weight_kg} kg` }}</dd></div>
@@ -40,7 +39,7 @@
 <script setup>
 import { useUserProfile } from '../composables/useUserProfile.js'
 import { useAuthStore } from '../stores/auth.js'
-import { genderLabel } from '../utils/profile.js'
+import { formatDateOfBirth, genderLabel } from '../utils/profile.js'
 
 defineOptions({ name: 'UserProfilePage' })
 
