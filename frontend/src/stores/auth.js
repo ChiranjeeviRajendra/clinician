@@ -43,10 +43,8 @@ function restoreSession() {
     const saved = JSON.parse(raw)
     if (saved && typeof saved.sessionToken === 'string' && saved.sessionToken.trim()) {
       const expiry = Date.parse(saved.expiresAt)
-      if (Number.isFinite(expiry) && expiry <= Date.now()) {
-        removeSavedSession()
-        return { session: null, reason: 'expired' }
-      }
+      // Initialization enforces expiry once the initial route is known, so a
+      // direct login-page load can check an existing token with the server.
       if (saved.expiresAt == null || Number.isFinite(expiry)) {
         return { session: saved, reason: '' }
       }
@@ -150,21 +148,27 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function initializeApp({ force = false, signal } = {}) {
+  async function initializeApp({ force = false, signal, initialLogin = false } = {}) {
     if (signal?.aborted) return
     if (appStatus.value === 'ready' && !force) return
+    if (initialLogin) {
+      loginReason.value = ''
+      appError.value = ''
+    }
     const token = savedToken()
     if (!token) {
       initialization?.controller.abort()
-      if (sessionToken.value) endSession('denied')
+      if (initialLogin) endSession('')
+      else if (sessionToken.value) endSession('denied')
       appStatus.value = 'ready'
       return
     }
-    if (initialization && !initialization.controller.signal.aborted && initialization.signal === signal) {
+    if (initialization && !initialization.controller.signal.aborted && initialization.signal === signal &&
+        initialization.initialLogin === initialLogin) {
       return initialization.promise
     }
     initialization?.controller.abort()
-    if (expiresAt.value && Date.parse(expiresAt.value) <= Date.now()) {
+    if (!initialLogin && expiresAt.value && Date.parse(expiresAt.value) <= Date.now()) {
       endSession('expired')
       return
     }
@@ -172,7 +176,7 @@ export const useAuthStore = defineStore('auth', () => {
     if (appStatus.value !== 'ready') appStatus.value = 'loading'
     appError.value = ''
     const validationVersion = sessionVersion
-    const request = { controller: new AbortController(), signal, promise: null }
+    const request = { controller: new AbortController(), signal, initialLogin, promise: null }
     initialization = request
     const abort = () => request.controller.abort()
     signal?.addEventListener('abort', abort, { once: true })
@@ -190,7 +194,7 @@ export const useAuthStore = defineStore('auth', () => {
         if (request.controller.signal.aborted || initialization !== request || validationVersion !== sessionVersion) return
         if (error.code === 'request_cancelled') return
         if (error.status === 401) {
-          endSession(error.code === 'session_expired' ? 'expired' : 'denied')
+          endSession(initialLogin ? '' : error.code === 'session_expired' ? 'expired' : 'denied')
         } else {
           appError.value = error.message
           appStatus.value = 'error'

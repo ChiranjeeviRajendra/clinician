@@ -1,3 +1,4 @@
+import { START_LOCATION } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
 import { getReturnTo, loginLocation } from './session.js'
 import { cancelRouteRequests } from '../services/route-requests.js'
@@ -6,8 +7,9 @@ export function installAuthGuards(router) {
   let navigation = 0
   let controller
   let pendingLocation
-  router.beforeEach(async (to) => {
+  router.beforeEach(async (to, from) => {
     const auth = useAuthStore()
+    const initialLogin = from === START_LOCATION && to.name === 'login' && !to.redirectedFrom
     const currentNavigation = ++navigation
     controller?.abort()
     controller = new AbortController()
@@ -17,11 +19,23 @@ export function installAuthGuards(router) {
     auth.pendingRoute = to.fullPath
     const checkingSavedSession = Boolean(auth.sessionToken || (auth.appStatus !== 'ready' && auth.loginReason))
     if (to.meta.requiresAuth) auth.rememberPage(to.fullPath)
-    await auth.initializeApp({ force: true, signal })
+    await auth.initializeApp({ force: true, signal, initialLogin })
     if (signal.aborted || currentNavigation !== navigation) return false
     if (auth.appStatus !== 'ready') return false
+    if (initialLogin) {
+      if (auth.hasSession()) return getReturnTo(router, to.query.redirect)
+      auth.loginReason = ''
+      if ('reason' in to.query || 'expired' in to.query) {
+        const query = { ...to.query }
+        delete query.reason
+        delete query.expired
+        return { path: to.path, query, hash: to.hash, replace: true }
+      }
+      return
+    }
     if (to.meta.requiresAuth && !auth.hasSession()) {
-      return loginLocation(auth, to.fullPath)
+      const reason = from === START_LOCATION && !checkingSavedSession ? '' : auth.loginReason || 'denied'
+      return loginLocation(auth, to.fullPath, reason)
     }
     if (checkingSavedSession && auth.loginReason && to.name !== 'login') {
       return { name: 'login', query: { reason: auth.loginReason } }

@@ -32,6 +32,7 @@ beforeEach(() => {
   router = createRouter({
     history: createMemoryHistory(),
     routes: [
+      { path: '/', redirect: '/home' },
       { path: '/home', name: 'home', component: {}, meta: { requiresAuth: true } },
       { path: '/chat', name: 'chat', component: {}, meta: { requiresAuth: true } },
       { path: '/profile', name: 'profile', component: {}, meta: { requiresAuth: true } },
@@ -161,14 +162,42 @@ test('an invalid token redirects straight to login with an access message and re
   assert.equal(check.mock.callCount(), 1)
 })
 
-test('a missing token skips appInfo and redirects a protected page to login', async () => {
+test('a missing token on the first protected-page load redirects silently to login', async () => {
   const check = mock.method(authApi, 'authenticate', async () => { throw new ApiError('Unauthorized', 401) })
   await router.push('/home')
   assert.equal(check.mock.callCount(), 0)
   assert.equal(useAuthStore().isRouteLoading, false)
   assert.equal(router.currentRoute.value.name, 'login')
   assert.equal(router.currentRoute.value.query.redirect, '/home')
-  assert.equal(router.currentRoute.value.query.reason, 'denied')
+  assert.equal(router.currentRoute.value.query.reason, undefined)
+  assert.equal(useAuthStore().loginReason, '')
+})
+
+test('a first visit to the site root reaches login without an authentication message', async () => {
+  const check = mock.method(authApi, 'authenticate', async () => info)
+  await router.push('/')
+  assert.equal(router.currentRoute.value.name, 'login')
+  assert.deepEqual(router.currentRoute.value.query, { redirect: '/home' })
+  assert.equal(useAuthStore().loginReason, '')
+  assert.equal(useAuthStore().appStatus, 'ready')
+  assert.equal(sessionStorage.getItem(SESSION_STORAGE_KEY), null)
+  assert.equal(check.mock.callCount(), 0)
+  assert.equal(appApi.info.mock.callCount(), 0)
+})
+
+test('a first protected deep link without credentials retains its destination silently', async () => {
+  await router.push('/chat?view=recent#latest')
+  assert.equal(router.currentRoute.value.name, 'login')
+  assert.deepEqual(router.currentRoute.value.query, { redirect: '/chat?view=recent#latest' })
+  assert.equal(useAuthStore().loginReason, '')
+})
+
+test('a later protected navigation without credentials still shows the access message', async () => {
+  await router.push('/login')
+  await router.push('/chat')
+  assert.equal(router.currentRoute.value.name, 'login')
+  assert.deepEqual(router.currentRoute.value.query, { reason: 'denied', redirect: '/chat' })
+  assert.equal(useAuthStore().loginReason, 'denied')
 })
 
 test('an expired saved session cannot restore access', async () => {
@@ -194,12 +223,147 @@ test('public account pages remain usable without a session', async () => {
   assert.equal(check.mock.callCount(), 0)
 })
 
-test('a saved invalid session displays the access message when opening login', async () => {
-  savedSession()
-  mock.method(authApi, 'authenticate', async () => { throw new ApiError('Unauthorized', 401) })
+for (const code of ['unauthorized', 'session_expired']) {
+  test(`opening login silently clears a saved token rejected as ${code}`, async () => {
+    savedSession()
+    const check = mock.method(authApi, 'authenticate', async () => { throw new ApiError('Unauthorized', 401, code) })
+    await router.push('/login?reason=expired&expired=1&redirect=%2Fchat&mode=register#form')
+    const auth = useAuthStore()
+    assert.equal(auth.appStatus, 'ready')
+    assert.equal(auth.loginReason, '')
+    assert.equal(auth.appError, '')
+    assert.equal(auth.user, null)
+    assert.equal(auth.sessionToken, null)
+    assert.equal(auth.expiresAt, null)
+    assert.equal(sessionStorage.getItem(SESSION_STORAGE_KEY), null)
+    assert.equal(router.currentRoute.value.name, 'login')
+    assert.deepEqual(router.currentRoute.value.query, { redirect: '/chat', mode: 'register' })
+    assert.equal(router.currentRoute.value.hash, '#form')
+    assert.equal(check.mock.callCount(), 1)
+    assert.equal(appApi.info.mock.callCount(), 0)
+  })
+}
+
+for (const [kind, stored] of [
+  ['missing', null],
+  ['invalid JSON', 'bad-json'],
+  ['missing token', '{}'],
+  ['blank token', JSON.stringify({ sessionToken: ' ' })],
+  ['invalid expiry', JSON.stringify({ user, sessionToken: 'saved-token', expiresAt: 'invalid' })],
+]) {
+  test(`opening login with ${kind} credentials clears them without an authentication message`, async () => {
+    if (stored !== null) sessionStorage.setItem(SESSION_STORAGE_KEY, stored)
+    const check = mock.method(authApi, 'authenticate', async () => info)
+    await router.push('/login?reason=denied&expired=1&redirect=%2Fprofile')
+    const auth = useAuthStore()
+    assert.equal(auth.appStatus, 'ready')
+    assert.equal(auth.loginReason, '')
+    assert.equal(auth.appError, '')
+    assert.equal(auth.isAuthenticated, false)
+    assert.equal(sessionStorage.getItem(SESSION_STORAGE_KEY), null)
+    assert.equal(router.currentRoute.value.name, 'login')
+    assert.deepEqual(router.currentRoute.value.query, { redirect: '/profile' })
+    assert.equal(check.mock.callCount(), 0)
+    assert.equal(appApi.info.mock.callCount(), 0)
+  })
+}
+
+test('opening login without a stored token also clears an in-memory session silently', async () => {
+  const auth = useAuthStore()
+  auth.$patch({ user, sessionToken: 'memory-only', expiresAt: info.expires_at, loginReason: 'denied' })
+  const check = mock.method(authApi, 'authenticate', async () => info)
   await router.push('/login')
+  assert.equal(auth.sessionToken, null)
+  assert.equal(auth.user, null)
+  assert.equal(auth.expiresAt, null)
+  assert.equal(auth.loginReason, '')
+  assert.equal(router.currentRoute.value.name, 'login')
+  assert.equal(check.mock.callCount(), 0)
+})
+
+for (const serverValid of [false, true]) {
+  test(`opening login checks a locally expired token and preserves its lifetime limit (server valid: ${serverValid})`, async () => {
+    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
+      user, sessionToken: 'expired-token', expiresAt: '2020-01-01T00:00:00Z',
+    }))
+    const check = mock.method(authApi, 'authenticate', async () => {
+      if (!serverValid) throw new ApiError('Expired', 401, 'session_expired')
+      return info
+    })
+    await router.push('/login?reason=expired')
+    assert.equal(check.mock.callCount(), 1)
+    assert.equal(check.mock.calls[0].arguments[0], 'expired-token')
+    assert.equal(useAuthStore().loginReason, '')
+    assert.equal(useAuthStore().sessionToken, null)
+    assert.equal(sessionStorage.getItem(SESSION_STORAGE_KEY), null)
+    assert.equal(router.currentRoute.value.fullPath, '/login')
+  })
+}
+
+for (const failure of [
+  new ApiError('Offline', 0),
+  new ApiError('Timed out', 0, 'request_timeout'),
+  new ApiError('Unavailable', 503),
+]) {
+  test(`opening login preserves credentials on ${failure.message} and retries the original redirect`, async () => {
+    savedSession()
+    sessionStorage.setItem(RETURN_TO_STORAGE_KEY, '/profile')
+    const stored = sessionStorage.getItem(SESSION_STORAGE_KEY)
+    const check = mock.method(authApi, 'authenticate', async () => { throw failure })
+    const location = '/login?reason=expired&redirect=%2Fchat%3Fview%3Drecent%23latest'
+    await router.push(location)
+    const auth = useAuthStore()
+    assert.equal(auth.appStatus, 'error')
+    assert.equal(auth.appError, failure.message)
+    assert.equal(auth.sessionToken, 'saved-token')
+    assert.equal(auth.isRouteLoading, false)
+    assert.equal(sessionStorage.getItem(SESSION_STORAGE_KEY), stored)
+    assert.equal(appApi.info.mock.callCount(), 0)
+    check.mock.mockImplementation(async () => info)
+    await router.replace(location)
+    assert.equal(auth.appStatus, 'ready')
+    assert.equal(auth.appError, '')
+    assert.equal(auth.loginReason, '')
+    assert.equal(router.currentRoute.value.fullPath, '/chat?view=recent#latest')
+    assert.equal(appApi.info.mock.callCount(), 1)
+  })
+}
+
+test('opening login preserves credentials when appInfo fails and retries successfully', async () => {
+  savedSession()
+  mock.method(authApi, 'authenticate', async () => info)
+  const metadata = mock.method(appApi, 'info', async () => { throw new ApiError('Unavailable', 503) })
+  await router.push('/login')
+  assert.equal(useAuthStore().appStatus, 'error')
+  assert.equal(useAuthStore().sessionToken, 'saved-token')
+  assert.notEqual(sessionStorage.getItem(SESSION_STORAGE_KEY), null)
+  metadata.mock.mockImplementation(async () => info)
+  await router.replace('/login')
+  assert.equal(router.currentRoute.value.name, 'home')
   assert.equal(useAuthStore().appStatus, 'ready')
-  assert.equal(router.currentRoute.value.query.reason, 'denied')
+  assert.equal(metadata.mock.callCount(), 2)
+})
+
+test('a canceled initial login check cannot restore cleared credentials or redirect later', async () => {
+  savedSession()
+  let resolveCheck
+  let signal
+  mock.method(authApi, 'authenticate', (_token, options) => {
+    signal = options.signal
+    return new Promise((resolve) => { resolveCheck = resolve })
+  })
+  const navigation = router.push('/login?redirect=%2Fprofile')
+  await new Promise((resolve) => setImmediate(resolve))
+  const auth = useAuthStore()
+  auth.endSession('')
+  await router.push('/forgot-password')
+  assert.equal(signal.aborted, true)
+  resolveCheck(info)
+  await navigation
+  assert.equal(router.currentRoute.value.path, '/forgot-password')
+  assert.equal(auth.sessionToken, null)
+  assert.equal(sessionStorage.getItem(SESSION_STORAGE_KEY), null)
+  assert.equal(appApi.info.mock.callCount(), 0)
 })
 
 test('an invalid saved token on a public page redirects to login without blocking recovery links afterward', async () => {
@@ -577,12 +741,51 @@ test('the last protected page survives login reload and is used after successful
   assert.equal(auth.loginReason, '')
 })
 
-test('a valid session opening login returns to the saved page instead of home', async () => {
+test('a valid session opening login without a URL redirect ignores the saved page and goes home', async () => {
   savedSession()
   sessionStorage.setItem(RETURN_TO_STORAGE_KEY, '/profile')
   mock.method(authApi, 'authenticate', async () => info)
   await router.push('/login')
+  assert.equal(router.currentRoute.value.name, 'home')
+})
+
+test('a valid session opening login follows the URL redirect with its query and hash', async () => {
+  savedSession()
+  sessionStorage.setItem(RETURN_TO_STORAGE_KEY, '/profile')
+  const check = mock.method(authApi, 'authenticate', async () => info)
+  await router.push('/login?redirect=%2Fchat%3Fview%3Drecent%23latest')
+  assert.equal(router.currentRoute.value.fullPath, '/chat?view=recent#latest')
+  assert.equal(check.mock.calls[0].arguments[0], 'saved-token')
+  assert.equal(appApi.info.mock.callCount(), 1)
+})
+
+for (const redirect of ['https://example.com', '//example.com', '/\\example.com', '/login', '/missing']) {
+  test(`a valid session opening login with redirect ${redirect} falls back to home`, async () => {
+    savedSession()
+    sessionStorage.setItem(RETURN_TO_STORAGE_KEY, '/profile')
+    mock.method(authApi, 'authenticate', async () => info)
+    await router.push({ name: 'login', query: { redirect } })
+    assert.equal(router.currentRoute.value.name, 'home')
+  })
+}
+
+test('routing to login within the app still uses the saved last page', async () => {
+  savedSession()
+  mock.method(authApi, 'authenticate', async () => info)
+  await router.push('/home')
+  useAuthStore().rememberPage('/profile')
+  await router.push('/login')
   assert.equal(router.currentRoute.value.name, 'profile')
+})
+
+test('routing to login within the app still shows a rejected session message', async () => {
+  savedSession()
+  const check = mock.method(authApi, 'authenticate', async () => info)
+  await router.push('/home')
+  check.mock.mockImplementation(async () => { throw new ApiError('Unauthorized', 401) })
+  await router.push('/login')
+  assert.equal(router.currentRoute.value.query.reason, 'denied')
+  assert.equal(useAuthStore().loginReason, 'denied')
 })
 
 test('only known protected pages can be used as return destinations', () => {

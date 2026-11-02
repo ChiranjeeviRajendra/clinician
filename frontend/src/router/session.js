@@ -11,5 +11,5 @@ export function getReturnTo(router, ...candidates) {
 export function loginLocation(auth, path, reason = auth.loginReason || 'denied') {
   auth.rememberPage(path)
   auth.endSession(reason)
-  return { name: 'login', query: { reason, redirect: path } }
+  return { name: 'login', query: { ...(reason ? { reason } : {}), redirect: path } }
 }
