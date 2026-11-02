@@ -1,14 +1,16 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 import re
+import jwt
 
 import pytest
 from sqlalchemy import select
 from werkzeug.security import check_password_hash
 
 from src.api.auth.service import hash_token
+from src.api.auth.jwt_tokens import validate_access_token
 from src.api.extensions import db
-from src.api.models import AuthSession, AuthToken, User
+from src.api.models import AuthToken, User
 from src.api.models.auth import utcnow
 
 EMAIL = "doctor@example.com"
@@ -21,7 +23,7 @@ def token_from_email(mailbox):
 
 
 def register(client):
-    return client.post("/auth/register", json={"email": EMAIL, "password": PASSWORD, "name": "Doctor"})
+    return client.post("/auth/register", json={"email": EMAIL, "password": PASSWORD})
 
 
 def verified_user(client, mailbox):
@@ -44,6 +46,7 @@ def test_register_verify_login_me_logout(client, mailbox, app):
     assert response.status_code == 201
     assert response.json["user"]["email_verified"] is False
     assert "password_hash" not in response.json["user"]
+    assert "name" not in response.json["user"]
     assert response.headers["Cache-Control"] == "no-store"
     assert login(client).status_code == 403
     token = token_from_email(mailbox)
@@ -57,13 +60,14 @@ def test_register_verify_login_me_logout(client, mailbox, app):
     response = login(client)
     headers = bearer(response)
     with app.app_context():
-        assert db.session.scalar(select(AuthSession)).token_hash == hash_token(response.json["session_token"])
+        assert validate_access_token(response.json["session_token"])["sub"] == response.json["user"]["id"]
     assert client.get("/auth/me", headers=headers).json["user"]["email_verified"] is True
-    assert client.get("/appInfo", headers=headers).status_code == 200
+    assert client.get("/userInfo", headers=headers).status_code == 200
     assert client.post("/auth/logout", headers=headers).status_code == 204
-    assert client.get("/auth/me", headers=headers).status_code == 401
-    assert client.get("/appInfo", headers=headers).status_code == 401
-    assert client.post("/auth/logout", headers=headers).status_code == 401
+    # Stateless logout does not revoke a copied token.
+    assert client.get("/authenticate", headers=headers).status_code == 200
+    assert client.get("/userInfo", headers=headers).status_code == 200
+    assert client.post("/auth/logout", headers=headers).status_code == 204
 
 
 def test_duplicate_email_is_case_insensitive(client, mailbox):
@@ -73,15 +77,15 @@ def test_duplicate_email_is_case_insensitive(client, mailbox):
     assert len(mailbox) == 1
 
 
-def test_password_reset_revokes_all_sessions_and_rejects_reuse(client, mailbox):
+def test_password_reset_updates_password_without_revoking_jwts_and_rejects_reuse(client, mailbox):
     verified_user(client, mailbox)
     first = bearer(login(client))
     second = bearer(login(client))
     assert client.post("/auth/forgot-password", json={"email": EMAIL}).status_code == 202
     token = token_from_email(mailbox)
     assert client.post("/auth/reset-password", json={"token": token, "password": NEW_PASSWORD}).status_code == 200
-    assert client.get("/auth/me", headers=first).status_code == 401
-    assert client.get("/auth/me", headers=second).status_code == 401
+    assert client.get("/auth/me", headers=first).status_code == 200
+    assert client.get("/auth/me", headers=second).status_code == 200
     assert login(client).status_code == 401
     assert login(client, NEW_PASSWORD).status_code == 200
     assert client.post("/auth/reset-password", json={"token": token, "password": PASSWORD}).status_code == 400
@@ -120,37 +124,28 @@ def test_expired_email_tokens(client, mailbox, app, purpose, endpoint):
     assert client.post(endpoint, json={"token": token, "password": NEW_PASSWORD}).status_code == 400
 
 
-def test_expired_session(client, mailbox, app):
+def test_expired_jwt(client, mailbox, app):
     verified_user(client, mailbox)
-    headers = bearer(login(client))
+    response = login(client)
     with app.app_context():
-        db.session.scalar(select(AuthSession)).expires_at = utcnow() - timedelta(seconds=1)
-        db.session.commit()
-    assert client.get("/auth/me", headers=headers).status_code == 401
-    response = client.get("/appInfo", headers=headers)
-    assert response.status_code == 401
-    assert response.json["error"]["code"] == "session_expired"
+        claims = validate_access_token(response.json["session_token"])
+        claims["iat"] = claims["nbf"] = int(utcnow().timestamp()) - 3600
+        claims["exp"] = int(utcnow().timestamp()) - 1
+        expired = jwt.encode(claims, app.config["JWT_SECRET_KEY"], algorithm="HS256")
+    headers = {"Authorization": "Bearer " + expired}
+    for path in ("/auth/me", "/userInfo", "/authenticate"):
+        response = client.get(path, headers=headers)
+        assert response.status_code == 401
+        assert response.json["error"]["code"] == "session_expired"
 
 
-def test_new_session_lifetime_is_twelve_hours(client, mailbox, app):
+def test_new_jwt_lifetime_is_twelve_hours(client, mailbox, app):
     verified_user(client, mailbox)
     response = login(client)
     assert response.status_code == 200
     with app.app_context():
-        session = db.session.scalar(select(AuthSession))
-        assert session.expires_at - session.created_at == timedelta(hours=12)
-
-
-def test_old_long_lived_session_cannot_exceed_current_lifetime(client, mailbox, app):
-    verified_user(client, mailbox)
-    headers = bearer(login(client))
-    with app.app_context():
-        session = db.session.scalar(select(AuthSession))
-        session.created_at = utcnow() - timedelta(hours=13)
-        session.expires_at = utcnow() + timedelta(days=6)
-        db.session.commit()
-    assert client.get("/auth/me", headers=headers).status_code == 401
-    assert client.get("/appInfo", headers=headers).status_code == 401
+        claims = validate_access_token(response.json["session_token"])
+        assert claims["exp"] - claims["iat"] == 43200
 
 
 def test_token_purposes_cannot_be_swapped(client, mailbox):
@@ -164,7 +159,7 @@ def test_token_purposes_cannot_be_swapped(client, mailbox):
 
 @pytest.mark.parametrize("payload", [None, [], {}, {"email": "bad", "password": PASSWORD},
     {"email": EMAIL, "password": "short"}, {"email": EMAIL, "password": 123},
-    {"email": EMAIL, "password": "x" * 129}, {"email": EMAIL, "password": PASSWORD, "name": " "},
+    {"email": EMAIL, "password": "x" * 129},
 ])
 def test_register_rejects_invalid_inputs(client, payload):
     assert client.post("/auth/register", json=payload).status_code in (400, 415)

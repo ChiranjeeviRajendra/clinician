@@ -1,0 +1,1 @@
+"""Optional user profile details."""

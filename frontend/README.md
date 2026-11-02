@@ -31,46 +31,101 @@ Vite requires port 5173 so it matches the backend's default email-link URL.
 
 - `/login`: sign in or switch to the create-account form. These call
   `POST /auth/login` and `POST /auth/register` respectively.
+  Forms validate required fields and email format before sending requests.
+  Registration and password reset require a matching confirm-password field
+  and passwords of 8–128 characters. Confirmation is checked only in the UI
+  and is not sent to the backend or stored. Validation errors on this page appear
+  in the global popup when submitted, and focus moves to the first invalid field.
+  Invalid-field highlighting updates while the user corrects the values.
+  The server also validates new passwords and email syntax. API failures with
+  `weak_password` or `invalid_email` display the server's message in the global
+  popup. Sign-in failures and session-expired/access notices use the same popup;
+  inline error banners and field-error text have been removed from this page.
 - `/home`: default landing page when no previous page is saved, with links to Chat with AI,
   Profile, and Faxes. The Clinician logo returns to this page.
-- `/profile` and `/faxes`: empty authenticated pages reserved for future work.
+- `/profile`: authenticated personal details and backend completion status. The
+  "Complete your profile" button opens `/update-profile`; completed profiles can
+  still be edited with "Update your profile".
+- `/update-profile`: optional full name, date of birth, gender, height in cm, weight in kg,
+  and ethnicity. Gender is hardcoded as Male (`1`) and Female (`2`). Loads saved
+  details from `GET /getUserProfile` and `{id, name}` ethnicity choices separately
+  from `GET /getEthnicities` in parallel; both dropdowns save numeric IDs;
+  saves only changed fields with `PATCH /updateUserProfile`. Blank values clear
+  saved details, and partial profiles can be saved and completed later. Requires
+  the manually applied backend migrations through `0006_profile_date_of_birth`.
+  Date of birth uses a date picker, saves as `YYYY-MM-DD`, and displays without a
+  timezone shift. Future dates are rejected; clearing the field saves null.
+  Successful saves return to `/profile` and show a global success popup for three
+  seconds. Failed saves show an error popup and preserve the form's edits.
+- `/faxes`: empty authenticated page reserved for future work.
 - `/verify-email#token=...`: confirm the verification link sent after registration.
   Accounts must verify their email before login.
 - `/forgot-password` and `/reset-password#token=...`: request and complete a reset.
 - `/chat`: authenticated medical chat; calls `POST /chat` with JSON.
-- Sign out calls `POST /auth/logout` to invalidate the server session.
+- Sign out discards the JWT locally, including when offline.
 
 In local file-mail mode, verification/reset emails are in
 `backend/instance/mail/*.eml`. Open the complete link while Vite is running.
 SMTP can be configured in `backend/.env` for real email delivery.
 
-Session credentials and the user profile are kept in Pinia and the current tab's
-`sessionStorage`. On page load, `GET /appInfo` runs only when tab storage contains
-a token. Without a token, no app-info request is made. Protected page components
-wait for server validation when needed. A valid response supplies application
-information, the current user, and expiration without extending the saved session.
-Invalid or revoked tokens redirect directly to login with "You do not have access
-to the app. Please login to continue." Expired sessions show "Your login session
-expired. Please login to continue." The backend returns `401 session_expired` for
-expiration and `401 unauthorized` for invalid/revoked sessions. Public login,
-registration, and email/password recovery pages remain accessible without a
-session. Network and database failures show a retry screen and preserve saved
-credentials.
-Sessions expire 12 hours after login (or sooner if the server sets an earlier
-expiration); closing the tab ends browser storage persistence. Credentials are
-never written to `localStorage`. Expired or malformed saved sessions are removed,
-and signing out clears the stored session after the server confirms revocation.
-The expiration timer redirects protected pages directly to login with the expired
-session message. The last protected page (including query and fragment) is saved
-separately in tab storage and survives session removal and login-page refreshes.
-After login, the app returns to that page; `/home` is the fallback for a first
-login. Return destinations must resolve to known protected routes in this app.
-Route guards protect the chat page; Flask also authenticates every chat request.
-A server `401` clears the client session and returns the user to sign in.
+The signed JWT and cached user are kept in Pinia and the current tab's
+`sessionStorage`. Before every route navigation (including query/fragment changes),
+`GET /authenticate` validates the saved token before user information or page requests.
+No authentication or user-info request is made without a token in tab storage.
+Known local expiry clears the token immediately. A successful initial authentication
+is followed by `GET /userInfo`, returning only `email`, `email_verified`, and
+`expires_at`. User information is cached in memory for the current session across
+routes. Logout or expiry clears it; a new session or browser refresh loads it again.
+Startup also reads `GET /getUserProfile` to display the full name in the account
+area and use it for avatar initials. A missing or blank name falls back to email.
+The name is cached for the current session and updated immediately after profile
+saves, including when the user clears it. A temporary profile-fetch failure leaves
+the rest of the app available. The `/userInfo` response still has only its three fields.
+Failed or canceled bootstrap calls can be retried and are never cached as success.
+
+The loading overlay covers only the routed content; the navbar stays clickable.
+Selecting another navbar item aborts the pending authentication/bootstrap check and
+page requests, then authenticates the latest selection. Clicking the selected or
+pending item does nothing. Late canceled responses are ignored. Account actions
+run independently of navigation cancellation. The current page stays mounted
+while later navigation is checked, and new pages wait for authentication.
+
+Invalid tokens redirect to login with "You do not have access to the app. Please
+login to continue." Expired tokens show "Your login session expired. Please login
+to continue." The backend uses `401 unauthorized` and `401 session_expired`, with
+`status: "invalid"` / `"expired"` on `/authenticate`. Valid tokens return
+`status: "valid"` and their expiry. Network or service failures show a retry screen
+and preserve credentials. Public account and recovery pages work without a token.
+
+JWTs expire 12 hours after login by default, or sooner if configured by the server;
+validation never extends the saved expiry. The expiry timer redirects protected
+pages to login. Signing out clears the JWT and cached user without a server request.
+With stateless authentication, a copied JWT remains usable until expiry, including
+after logout or password reset. Expiry requires another login. Credentials are
+never stored in `localStorage`.
+
+The last protected page, including its query and fragment, is saved separately in
+tab storage and survives logout, expiry, and login-page refreshes. Login returns
+to that page, with `/home` as the fallback. Return destinations must resolve to
+known protected routes. Flask also validates the JWT on each protected API call;
+route checks alone never authorize an API request. Existing opaque session tokens
+are rejected after switching to JWTs, so existing users must sign in again.
 
 Conversations are held in the current page's memory and are not saved to the database.
 New conversation clears the visible messages. The model continues to answer each
 question independently using the existing reference retrieval pipeline.
+
+## Global notifications
+
+`AppNotification` is mounted once in `App.vue`, above routed content. It displays
+small success, warning, and error popups at the top of the viewport, including
+across page navigation. Each message dismisses after three seconds or when its
+close button is clicked. A newer message replaces the current one and gets its
+own three-second timer.
+
+Any component or composable can use `useNotificationsStore()` from
+`src/stores/notifications.js` and call `success(message)`, `warning(message)`, or
+`error(message)`.
 
 ## Structure
 
@@ -92,7 +147,8 @@ npm run build
 ```
 
 Tests use Node's built-in test runner and mock the HTTP boundary to verify API
-payloads, failures, timeouts, login/profile loading, logout, and session expiration.
+payloads, failures, timeouts, JWT authentication before user-info/page loading, user information cached per session,
+route cancellation, local logout, and token expiration.
 The production build is written to `dist/`.
 
 ## Deployment

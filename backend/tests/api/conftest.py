@@ -32,6 +32,7 @@ def app():
             "pool_pre_ping": True,
         },
         "RATELIMIT_ENABLED": False,
+        "JWT_SECRET_KEY": "integration-tests-only-signing-secret-0123456789abcdef-0123456789abcdef",
     })
     try:
         with application.app_context():
@@ -49,7 +50,7 @@ def app():
 @pytest.fixture(autouse=True)
 def clean_database(app):
     with app.app_context():
-        db.session.execute(text("TRUNCATE auth_tokens, auth_sessions, users CASCADE"))
+        db.session.execute(text("TRUNCATE auth_tokens, users CASCADE"))
         db.session.commit()
 
 

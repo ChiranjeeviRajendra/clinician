@@ -1,7 +1,8 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { authApi } from '../services/auth.js'
-import { appApi } from '../services/app.js'
+import { userApi } from '../services/user.js'
+import { profileApi } from '../services/profile.js'
 
 export const SESSION_STORAGE_KEY = 'clinician.auth.session'
 export const RETURN_TO_STORAGE_KEY = 'clinician.auth.returnTo'
@@ -43,10 +44,8 @@ function restoreSession() {
     const saved = JSON.parse(raw)
     if (saved && typeof saved.sessionToken === 'string' && saved.sessionToken.trim()) {
       const expiry = Date.parse(saved.expiresAt)
-      if (Number.isFinite(expiry) && expiry <= Date.now()) {
-        removeSavedSession()
-        return { session: null, reason: 'expired' }
-      }
+      // Initialization enforces expiry once the initial route is known, so a
+      // direct login-page load can check an existing token with the server.
       if (saved.expiresAt == null || Number.isFinite(expiry)) {
         return { session: saved, reason: '' }
       }
@@ -62,21 +61,32 @@ export const useAuthStore = defineStore('auth', () => {
   const restored = restoreSession()
   const saved = restored.session
   const user = ref(saved?.user ?? null)
+  const fullName = ref(typeof saved?.fullName === 'string' ? saved.fullName.trim() || null : null)
+  const displayName = computed(() => fullName.value || user.value?.email || '')
   const sessionToken = ref(saved?.sessionToken ?? null)
   const expiresAt = ref(saved?.expiresAt ?? null)
-  const appInfo = ref(null)
+  const userInfo = ref(null)
   const appStatus = ref('idle')
   const appError = ref('')
+  const routeRequests = ref(0)
+  const isRouteLoading = computed(() => routeRequests.value > 0)
   const loginReason = ref(restored.reason)
   const returnTo = ref(readStorage(RETURN_TO_STORAGE_KEY))
+  const pendingRoute = ref(null)
   let initialization
+  let sessionVersion = 0
+  let userInfoToken = null
   const isAuthenticated = computed(() => Boolean(user.value && sessionToken.value))
 
   function clearSession() {
+    sessionVersion += 1
+    initialization?.controller.abort()
     user.value = null
+    fullName.value = null
     sessionToken.value = null
     expiresAt.value = null
-    appInfo.value = null
+    userInfo.value = null
+    userInfoToken = null
     removeSavedSession()
   }
 
@@ -95,6 +105,40 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function loadStartup(token, { signal } = {}) {
+    routeRequests.value += 1
+    let finished = false
+    const finish = () => {
+      if (finished) return
+      finished = true
+      routeRequests.value -= 1
+    }
+    signal?.addEventListener('abort', finish, { once: true })
+    try {
+      const authentication = await authApi.authenticate(token, { signal })
+      signal?.throwIfAborted()
+      if (authentication.status !== 'valid') {
+        const error = new Error(LOGIN_MESSAGES.denied)
+        error.status = 401
+        error.code = authentication.status === 'expired' ? 'session_expired' : 'unauthorized'
+        throw error
+      }
+      // Reuse account information only for the session that loaded it.
+      const [info, profileResponse] = userInfoToken === token ? [null, null] : await Promise.all([
+        userApi.info(token, { signal }),
+        profileApi.getUserProfile(token, { signal, routeScoped: false }).catch((error) => {
+          // Profile availability does not block access to the rest of the app.
+          if (error.status === 401 || error.code === 'request_cancelled' || signal?.aborted) throw error
+          return null
+        }),
+      ])
+      return { authentication, info, profile: profileResponse?.profile }
+    } finally {
+      finish()
+      signal?.removeEventListener('abort', finish)
+    }
+  }
+
   function saveSession(profile, token, serverExpiry, maximumExpiry = Infinity) {
     const expiry = Math.min(Date.parse(serverExpiry), maximumExpiry, Date.now() + SESSION_DURATION_MS)
     if (!Number.isFinite(expiry) || expiry <= Date.now()) {
@@ -103,46 +147,90 @@ export const useAuthStore = defineStore('auth', () => {
       error.code = 'session_expired'
       throw error
     }
+    if (sessionToken.value !== token) {
+      userInfo.value = null
+      userInfoToken = null
+      fullName.value = null
+    }
     user.value = profile
+    sessionVersion += 1
     sessionToken.value = token
     expiresAt.value = new Date(expiry).toISOString()
+    return persistSession()
+  }
+
+  function persistSession() {
     try {
       globalThis.sessionStorage?.setItem(SESSION_STORAGE_KEY, JSON.stringify({
-        user: user.value, sessionToken: sessionToken.value, expiresAt: expiresAt.value,
+        user: user.value, fullName: fullName.value, sessionToken: sessionToken.value, expiresAt: expiresAt.value,
       }))
-      return savedToken() === token
+      return savedToken() === sessionToken.value
     } catch {
       // The active session remains usable if the browser blocks storage.
       return false
     }
   }
 
-  async function initializeApp() {
-    if (initialization) return initialization
-    if (appStatus.value === 'ready') return
+  function setProfileName(name, token) {
+    if (!token || token !== sessionToken.value) return
+    fullName.value = typeof name === 'string' ? name.trim() || null : null
+    persistSession()
+  }
+
+  async function initializeApp({ force = false, signal, initialLogin = false } = {}) {
+    if (signal?.aborted) return
+    if (appStatus.value === 'ready' && !force) return
+    if (initialLogin) {
+      loginReason.value = ''
+      appError.value = ''
+    }
     const token = savedToken()
     if (!token) {
-      if (sessionToken.value) endSession('denied')
+      initialization?.controller.abort()
+      if (initialLogin) endSession('')
+      else if (sessionToken.value) endSession('denied')
       appStatus.value = 'ready'
       return
     }
-    if (expiresAt.value && Date.parse(expiresAt.value) <= Date.now()) {
+    if (initialization && !initialization.controller.signal.aborted && initialization.signal === signal &&
+        initialization.initialLogin === initialLogin) {
+      return initialization.promise
+    }
+    initialization?.controller.abort()
+    if (!initialLogin && expiresAt.value && Date.parse(expiresAt.value) <= Date.now()) {
       endSession('expired')
       return
     }
-    appStatus.value = 'loading'
+    // Keep the current page mounted while a later navigation is validated.
+    if (appStatus.value !== 'ready') appStatus.value = 'loading'
     appError.value = ''
-    initialization = (async () => {
+    const validationVersion = sessionVersion
+    const request = { controller: new AbortController(), signal, initialLogin, promise: null }
+    initialization = request
+    const abort = () => request.controller.abort()
+    signal?.addEventListener('abort', abort, { once: true })
+    request.promise = (async () => {
       try {
-        const info = await appApi.info(token)
+        const { authentication, info, profile } = await loadStartup(token, { signal: request.controller.signal })
+        if (request.controller.signal.aborted || initialization !== request || validationVersion !== sessionVersion) return
         const previousExpiry = Date.parse(expiresAt.value)
-        saveSession(info.user, token, info.expires_at, Number.isFinite(previousExpiry) ? previousExpiry : Infinity)
-        appInfo.value = info
+        const account = info ? { email: info.email, email_verified: info.email_verified } : user.value
+        saveSession(account, token, authentication.expires_at, Math.min(
+          Number.isFinite(previousExpiry) ? previousExpiry : Infinity,
+          info ? Date.parse(info.expires_at) : Infinity,
+        ))
+        if (info) {
+          userInfo.value = { email: info.email, email_verified: info.email_verified, expires_at: info.expires_at }
+          userInfoToken = token
+        }
+        if (profile) setProfileName(profile.full_name, token)
         loginReason.value = ''
         appStatus.value = 'ready'
       } catch (error) {
+        if (request.controller.signal.aborted || initialization !== request || validationVersion !== sessionVersion) return
+        if (error.code === 'request_cancelled') return
         if (error.status === 401) {
-          endSession(error.code === 'session_expired' ? 'expired' : 'denied')
+          endSession(initialLogin ? '' : error.code === 'session_expired' ? 'expired' : 'denied')
         } else {
           appError.value = error.message
           appStatus.value = 'error'
@@ -150,9 +238,10 @@ export const useAuthStore = defineStore('auth', () => {
       }
     })()
     try {
-      await initialization
+      await request.promise
     } finally {
-      initialization = null
+      signal?.removeEventListener('abort', abort)
+      if (initialization === request) initialization = null
     }
   }
 
@@ -168,12 +257,8 @@ export const useAuthStore = defineStore('auth', () => {
   async function signIn(credentials) {
     const response = await authApi.login(credentials)
     try {
-      const persisted = saveSession(response.user, response.session_token, response.expires_at)
-      if (persisted) {
-        const info = await appApi.info(response.session_token)
-        saveSession(info.user, response.session_token, info.expires_at, Date.parse(expiresAt.value))
-        appInfo.value = info
-      }
+      saveSession(response.user, response.session_token, response.expires_at)
+      // The destination's guard authenticates first, then loads userInfo if needed.
       loginReason.value = ''
       appStatus.value = 'ready'
     } catch (error) {
@@ -187,20 +272,14 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function signOut() {
-    if (sessionToken.value) {
-      try {
-        await authApi.logout(sessionToken.value)
-      } catch (error) {
-        if (error.status !== 401) throw error
-      }
-    }
+    // No server-side session exists to revoke; logout also works offline.
     clearSession()
     loginReason.value = ''
   }
 
   return {
-    user, sessionToken, expiresAt, appInfo, appStatus, appError, loginReason, returnTo,
+    user, fullName, displayName, sessionToken, expiresAt, userInfo, appStatus, appError, isRouteLoading, loginReason, returnTo, pendingRoute,
     isAuthenticated, hasSession, clearSession, signIn, signOut,
-    initializeApp, endSession, rememberPage,
+    initializeApp, endSession, rememberPage, setProfileName,
   }
 })

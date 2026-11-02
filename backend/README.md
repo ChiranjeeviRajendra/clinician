@@ -23,6 +23,9 @@ Add the new settings from `.env.example` to an existing `.env`. Set
 DATABASE_URL=postgresql+psycopg://USER:PASSWORD@localhost:5432/clinician
 ```
 
+Also set `JWT_SECRET_KEY` to a private random value of at least 32 bytes before
+starting Flask or using its CLI (see the JWT configuration below).
+
 URL-encode special characters in credentials. With PostgreSQL already running,
 create the database (requires a role with `CREATEDB`), apply migrations, and start:
 
@@ -147,8 +150,8 @@ the current structure; the existing `python template.py` command delegates to it
 
 | Table | Data |
 | --- | --- |
-| `users` | UUID, unique normalized email, optional name, password hash, verification time, timestamps |
-| `auth_sessions` | UUID, user foreign key, unique hashed session token, expiry and revocation timestamps |
+| `users` | UUID, unique normalized email, password hash, verification time, timestamps |
+| `user_profile` | User UUID as primary/foreign key, optional full name, date of birth, numeric gender and ethnicity IDs, height in cm, weight in kg |
 | `auth_tokens` | UUID, user foreign key, unique hashed token, purpose, expiry and consumption timestamps |
 | `alembic_version` | Applied migration revision |
 
@@ -165,14 +168,18 @@ except the empty `204` logout response. Errors have the shape
 
 | Endpoint | JSON body | Success |
 | --- | --- | --- |
-| `GET /appInfo` | None; requires Bearer token | `200`: `name`, `service`, `status`, authenticated `user`, and effective session `expires_at` |
-| `POST /auth/register` | `{"email":"doctor@example.com","password":"long-secure-password","name":"Doctor"}` (`name` optional) | `201`: user and verification message |
-| `POST /auth/login` | `{"email":"doctor@example.com","password":"long-secure-password"}` | `200`: user, `session_token`, `token_type`, `expires_at` |
-| `POST /auth/logout` | None; requires Bearer token | `204`: session revoked |
+| `GET /authenticate` | None; requires Bearer JWT | `200`: `status: "valid"`, `expires_at`; `401`: `status: "invalid"` or `"expired"` with the normal error object |
+| `GET /userInfo` | None; requires Bearer token | `200`: only `email`, `email_verified`, and JWT `expires_at`; fetched after authentication and cached for the current session on the page |
+| `POST /auth/register` | `{"email":"doctor@example.com","password":"long-secure-password"}` | `201`: user and verification message |
+| `POST /auth/login` | `{"email":"doctor@example.com","password":"long-secure-password"}` | `200`: user, signed JWT in `session_token`, `token_type`, `expires_at` |
+| `POST /auth/logout` | None; requires Bearer token | `204`: valid JWT acknowledged; client discards the token |
 | `GET /auth/me` | None; requires Bearer token | `200`: `{"user":{...}}` |
+| `GET /getUserProfile` | None; requires Bearer token | `200`: only `profile`, including `isProfileCompleted` |
+| `GET /getEthnicities` | None; requires Bearer JWT; no database access | `200`: `{"ethnicities":[{"id":1,"name":"Aboriginal or Torres Strait Islander"},...]}` |
+| `PATCH /updateUserProfile` | Any subset of `full_name`, `date_of_birth`, `gender`, `height_cm`, `weight_kg`, `ethnicity`; requires Bearer token | `200`: updated `profile` including `isProfileCompleted` |
 | `POST /auth/verify-email` | `{"token":"TOKEN_FROM_EMAIL"}` | `200`: email verified |
 | `POST /auth/forgot-password` | `{"email":"doctor@example.com"}` | `202`: same message whether an account exists |
-| `POST /auth/reset-password` | `{"token":"TOKEN_FROM_EMAIL","password":"new-secure-password"}` | `200`: password updated; all sessions revoked |
+| `POST /auth/reset-password` | `{"token":"TOKEN_FROM_EMAIL","password":"new-secure-password"}` | `200`: password updated; existing JWTs remain valid until expiry |
 | `POST /chat` | `{"message":"What is hypertension?"}`; requires Bearer token | `200`: `{"answer":"..."}` |
 
 Chat messages must contain 1–8000 characters after trimming. Chat uses the same
@@ -188,30 +195,174 @@ configuration is needed with this proxy. For production, serve the Vue build
 and reverse-proxy `/api/*` to Flask with the same prefix removal. Vite's development
 proxy does not run in the production build or preview server.
 
-Login requires a verified email. Passwords must have 12–128 characters and are
+Login requires a verified email. New passwords must have 8–128 characters and are
 hashed with Werkzeug scrypt. Emails are normalized to lowercase. Duplicate
 registration returns `409`; invalid credentials/session return `401`; unverified
 login returns `403`; invalid, expired, consumed, or wrong-purpose email tokens
 return `400`. Excessive requests return `429`.
 
-Use the opaque session token from login for authenticated requests:
+Registration and password reset return `400 weak_password` with
+"Password is too weak. Use at least 8 characters." for passwords below the
+minimum length. Email-bearing auth endpoints return `400 invalid_email` with
+"Enter a valid email address." for missing, malformed, or oversized addresses.
+Email validation checks syntax without DNS or mailbox-existence lookups;
+verification emails establish ownership. Forms display the server's error
+message. Login verifies existing credentials without applying new-password rules.
+
+Use the signed access JWT from login for authenticated requests:
 
 ```http
-Authorization: Bearer SESSION_TOKEN
+Authorization: Bearer SIGNED_JWT
 ```
 
-Sessions are stored server-side and expire in 12 hours by default
-(`SESSION_TTL_SECONDS=43200`). Authentication also checks session age, so previously
-issued sessions cannot exceed the currently configured lifetime. Expired sessions
-return `401` with error code `session_expired`; unknown or revoked tokens return
-`401 unauthorized`. Verification
-tokens expire in 24 hours; reset tokens in 30 minutes. Email tokens are single-use.
-A new reset request invalidates previous reset tokens. Tokens are cryptographically
-random and only SHA-256 hashes are persisted. Password resets and token consumption
-use PostgreSQL row locks to prevent token replay and races with login. Tokens and
-password hashes are never included in user responses. Use HTTPS outside localhost
-and keep Bearer credentials out of URLs. The Vue client stores its session in
-the current tab's `sessionStorage` and removes it on logout or expiration.
+Authentication is stateless: login issues an HS256-signed JWT, and protected APIs
+validate the signature, fixed algorithm, issuer, audience, token purpose, subject,
+and required time claims. No login sessions or access tokens are stored in the
+database. `GET /authenticate` performs no database queries. `/userInfo` and `/auth/me`
+still read account data from `users`; login checks the stored password hash.
+Every protected API validates its own JWT independently of frontend route checks.
+
+JWTs expire in 12 hours by default (`SESSION_TTL_SECONDS=43200`); reducing this
+setting also limits tokens already issued. Expired tokens return `401` with
+`session_expired`; malformed tokens, bad signatures, and old opaque session tokens
+return `401 unauthorized`. `/authenticate` additionally returns `status: "expired"`
+or `status: "invalid"`; a valid token returns `200` with `status: "valid"` and
+`expires_at`. These responses and app/account responses use `Cache-Control: no-store`.
+
+Set `JWT_SECRET_KEY` in `backend/.env` to a private, persistent random secret of
+at least 32 bytes. Generate a value manually with:
+
+```powershell
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Use the same secret and `JWT_ISSUER` / `JWT_AUDIENCE` settings on all backend workers.
+Never put the secret in frontend configuration or commit it. Startup fails if the
+secret is missing or too short. Changing the secret invalidates all existing JWTs.
+JWT payloads are signed, not encrypted, and contain no password or account profile.
+
+Logout clears the browser's JWT locally, including when offline. The compatibility
+`POST /auth/logout` endpoint validates the JWT and returns `204`, without revocation.
+Copied JWTs remain valid until expiry after logout, password reset, or account
+changes. There is no per-token revocation or automatic refresh in this architecture.
+Shorter token lifetimes reduce that window. A fresh login is required after expiry.
+
+Email verification and password-reset links keep their separate `auth_tokens`
+records so they can expire and be consumed exactly once. Only SHA-256 hashes of
+those random email tokens are persisted. Verification links expire in 24 hours,
+reset links in 30 minutes. New reset requests invalidate previous reset links;
+row locks protect consumption and password updates from races. Use HTTPS outside
+localhost and keep Bearer credentials out of URLs. The frontend keeps its JWT and
+cached user in the current tab's `sessionStorage` and clears both on logout/expiry.
+
+### Manually migrate existing installations to JWT authentication
+
+Migration `0003_stateless_jwt` is prepared, not automatically applied. It drops
+`auth_sessions` and its stored sessions. Existing opaque tokens will no longer
+work; users must sign in again. No database change runs at application startup.
+From `backend`, after installing the updated requirements and configuring the
+signing secret, run this yourself when ready:
+
+```powershell
+python -m flask --app app db upgrade
+```
+
+To inspect the change without connecting to or updating a database:
+
+```powershell
+python -m flask --app app db upgrade 0002_remove_user_name:0003_stateless_jwt --sql
+```
+
+Downgrading recreates an empty session table; deleted sessions cannot be restored.
+
+### User profiles and manual migration
+
+The authenticated `/profile` page reads `GET /getUserProfile`. Its
+"Complete your profile" button opens `/update-profile`, which saves changes with
+`PATCH /updateUserProfile`. Completed profiles offer "Update your profile" instead.
+Both endpoints use the JWT subject to select the current user and reject deleted
+accounts. Profile responses use `Cache-Control: no-store`.
+
+All six fields are nullable. Omitted fields stay unchanged; explicit `null` or a
+blank string clears a saved value. An empty update is a read-only no-op. Reading
+an unsaved profile returns null details and `isProfileCompleted: false` without
+inserting a row. Profile updates use an atomic upsert keyed by the current user's
+ID, including concurrent first saves. Clients cannot update identity or completion.
+
+`isProfileCompleted` is calculated by the backend on every response and is true
+when all six details are present, including date of birth. "Other" and "Prefer
+not to say" count as filled ethnicity choices. Full names are trimmed and limited
+to 200 characters; date of birth must be a real calendar date in `YYYY-MM-DD`
+format, no later than today in UTC (the same limit used by the form); height must be greater
+than 0 and at most 300 cm; weight must be greater than 0 and at most 1000 kg.
+Measurements accept up to two decimal places. Gender accepts only integer IDs
+`1` (Male) and `2` (Female); those choices are hardcoded in the UI. There is no
+gender lookup endpoint. Ethnicity accepts a positive integer ID from the
+immutable catalog in `src/api/profile/constants.py`, shared by validation and
+`GET /getEthnicities`. That endpoint returns `{id, name}` choices and validates
+the JWT without communicating with the database. Keep existing ethnicity IDs
+unchanged when editing labels or their display order. The full original list
+has IDs 1 through 16. Add new choices with unused positive integer IDs; no schema
+migration is needed to extend the catalog. IDs 10 and above are supported.
+
+Profile responses keep `gender` and `ethnicity` as numeric IDs and also include
+the user's `ethnicity_name` for display. The summary uses its local gender labels
+and that ethnicity name, so it still fetches only user information. The update
+form fetches profile details and ethnicity choices in parallel and saves IDs.
+Strings, booleans, fractions, and unknown IDs are rejected for numeric selections
+before persistence. Birth dates are stored in a nullable PostgreSQL `DATE` column
+and serialized as date-only ISO strings, with no timezone conversion. `null` or a
+blank value clears a saved birth date. The old `age` API property is no longer
+accepted or returned.
+
+Migration `0004_user_profile` is **prepared, not applied**. It adds only
+`user_profile`, with `id` as both its primary key and a foreign key to `users.id`
+using `ON DELETE CASCADE`. No existing users need backfilling. From the repository
+root, apply it manually when ready:
+
+```powershell
+cd backend
+.venv\Scripts\python.exe -m flask --app app db upgrade 0006_profile_date_of_birth
+```
+
+This also applies any pending earlier migrations; review those before upgrading.
+To preview just the profile migration without connecting to or changing a database:
+
+```powershell
+.venv\Scripts\python.exe -m flask --app app db upgrade 0003_stateless_jwt:0004_user_profile --sql
+```
+
+Migration `0005_profile_choice_ids` is also **prepared, not applied**. It converts
+the existing text `gender` into nullable `SMALLINT` IDs and `ethnicity` into
+nullable `INTEGER` IDs, with constraints for gender 1/2 and positive ethnicity
+IDs. The original `0004` is
+unchanged, so the same upgrade command works whether or not it was already applied.
+Existing Male/Female values become 1/2. Other old gender values become null.
+All sixteen original ethnicity labels, including "Prefer not to say", map to
+distinct IDs and can be restored by downgrading; no groups are combined. Users
+can re-enter cleared gender details later. Downgrading cannot recover unsupported
+gender values cleared during the conversion.
+Review this conversion before applying the migration manually. Preview it offline:
+
+```powershell
+.venv\Scripts\python.exe -m flask --app app db upgrade 0004_user_profile:0005_profile_choice_ids --sql
+```
+
+Migration `0006_profile_date_of_birth` is **prepared, not applied**. It adds the
+nullable `date_of_birth` column and removes `age` and its check constraint. Existing
+ages are discarded when you apply it; no exact birth dates can be inferred from
+an age, so all existing birth dates start as null. Users can fill them in later,
+and completion remains false until all six details, including birth date, exist.
+Earlier migrations remain unchanged. The manual upgrade command above applies
+all pending migrations through `0006_profile_date_of_birth`.
+
+Downgrading recreates a nullable age column without recovering previous ages and
+discards entered birth dates. Preview the forward migration without connecting
+to or changing a database:
+
+```powershell
+.venv\Scripts\python.exe -m flask --app app db upgrade 0005_profile_choice_ids:0006_profile_date_of_birth --sql
+```
 
 ## Development email
 
@@ -237,6 +388,18 @@ multiple workers. Trust proxy headers only after configuring the actual proxy.
 
 ## Tests
 
+For agents and routine verification under `AGENTS.md`, run only the database-free
+unit and mocked AI suites:
+
+```powershell
+python -m pytest tests/unit tests/ai -q
+```
+
+The PostgreSQL integration suite below changes database objects and data; it must
+be run manually by the user. It has been updated for JWTs but is not part of the
+agent's allowed checks.
+
+
 Create a separate local test database, owned by your development role, then set:
 
 ```dotenv
@@ -250,7 +413,7 @@ python -m pytest -q
 Tests run the real migrations in a randomly named, isolated schema and remove
 only that schema afterward. The role needs schema creation permission in the
 test database. Tests cover the full lifecycle, validation, email uniqueness,
-hash storage, expiration, token purpose/reuse, revocation, mail rollback, and
+email-token hash storage, JWT expiry/signatures, token purpose/reuse, mail rollback, and
 concurrent use of a reset token. Chat and AI regression tests preserve the route
 contract, retrieval configuration, prompt wiring, document processing, and lazy
 provider initialization. AI provider calls are mocked and do not make network
