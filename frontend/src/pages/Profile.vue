@@ -1,10 +1,5 @@
 <template>
   <section class="profile-page" aria-labelledby="profile-heading" :aria-busy="loading">
-    <header class="home-intro">
-      <span class="eyebrow muted">YOUR ACCOUNT</span>
-      <h1 id="profile-heading">Your profile.</h1>
-      <p>A few details about you, at your own pace.</p>
-    </header>
 
     <p v-if="loading" class="profile-loading" role="status">Loading your profile...</p>
     <div v-if="error" class="notice error" role="alert">
@@ -31,7 +26,6 @@
         <span>{{ profile.isProfileCompleted ? 'Update your profile' : 'Complete your profile' }}</span>
         <span aria-hidden="true">&rarr;</span>
       </RouterLink>
-      <p class="profile-hint">Every field is optional. You can save a few details now and return anytime.</p>
     </div>
   </section>
 </template>

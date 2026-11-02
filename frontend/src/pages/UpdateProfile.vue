@@ -2,7 +2,6 @@
   <section class="profile-page" aria-labelledby="update-profile-heading" :aria-busy="loading">
     <RouterLink :to="{ name: 'profile' }" class="back-link profile-back">&larr; Back to profile</RouterLink>
     <header class="home-intro">
-      <span class="eyebrow muted">PERSONAL DETAILS</span>
       <h1 id="update-profile-heading">Update your profile.</h1>
       <p>All fields are optional. Save what you like and add more whenever you are ready.</p>
     </header>
