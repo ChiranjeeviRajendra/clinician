@@ -10,6 +10,7 @@ const router = createRouter({
     { path: '/home', name: 'home', component: () => import('../pages/Home.vue'), meta: { requiresAuth: true } },
     { path: '/chat', name: 'chat', component: () => import('../pages/Chat.vue'), meta: { requiresAuth: true } },
     { path: '/profile', name: 'profile', component: () => import('../pages/Profile.vue'), meta: { requiresAuth: true } },
+    { path: '/update-profile', name: 'update-profile', component: () => import('../pages/UpdateProfile.vue'), meta: { requiresAuth: true } },
     { path: '/faxes', name: 'faxes', component: () => import('../pages/Faxes.vue'), meta: { requiresAuth: true } },
     ...['verify-email', 'forgot-password', 'reset-password'].map((action) => ({
       path: `/${action}`,

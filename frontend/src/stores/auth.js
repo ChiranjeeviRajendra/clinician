@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { authApi } from '../services/auth.js'
-import { appApi } from '../services/app.js'
+import { userApi } from '../services/user.js'
 
 export const SESSION_STORAGE_KEY = 'clinician.auth.session'
 export const RETURN_TO_STORAGE_KEY = 'clinician.auth.returnTo'
@@ -62,7 +62,7 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref(saved?.user ?? null)
   const sessionToken = ref(saved?.sessionToken ?? null)
   const expiresAt = ref(saved?.expiresAt ?? null)
-  const appInfo = ref(null)
+  const userInfo = ref(null)
   const appStatus = ref('idle')
   const appError = ref('')
   const routeRequests = ref(0)
@@ -72,6 +72,7 @@ export const useAuthStore = defineStore('auth', () => {
   const pendingRoute = ref(null)
   let initialization
   let sessionVersion = 0
+  let userInfoToken = null
   const isAuthenticated = computed(() => Boolean(user.value && sessionToken.value))
 
   function clearSession() {
@@ -80,6 +81,8 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
     sessionToken.value = null
     expiresAt.value = null
+    userInfo.value = null
+    userInfoToken = null
     removeSavedSession()
   }
 
@@ -116,8 +119,8 @@ export const useAuthStore = defineStore('auth', () => {
         error.code = authentication.status === 'expired' ? 'session_expired' : 'unauthorized'
         throw error
       }
-      // Cache application metadata for this page lifetime, including across logout.
-      const info = appInfo.value ? null : await appApi.info(token, { signal })
+      // Reuse account information only for the session that loaded it.
+      const info = userInfoToken === token ? null : await userApi.info(token, { signal })
       return { authentication, info }
     } finally {
       finish()
@@ -132,6 +135,10 @@ export const useAuthStore = defineStore('auth', () => {
       error.status = 401
       error.code = 'session_expired'
       throw error
+    }
+    if (sessionToken.value !== token) {
+      userInfo.value = null
+      userInfoToken = null
     }
     user.value = profile
     sessionVersion += 1
@@ -185,9 +192,15 @@ export const useAuthStore = defineStore('auth', () => {
         const { authentication, info } = await loadStartup(token, { signal: request.controller.signal })
         if (request.controller.signal.aborted || initialization !== request || validationVersion !== sessionVersion) return
         const previousExpiry = Date.parse(expiresAt.value)
-        saveSession(info?.user ?? user.value, token, authentication.expires_at,
-          Number.isFinite(previousExpiry) ? previousExpiry : Infinity)
-        if (info) appInfo.value = { name: info.name, service: info.service, status: info.status }
+        const account = info ? { email: info.email, email_verified: info.email_verified } : user.value
+        saveSession(account, token, authentication.expires_at, Math.min(
+          Number.isFinite(previousExpiry) ? previousExpiry : Infinity,
+          info ? Date.parse(info.expires_at) : Infinity,
+        ))
+        if (info) {
+          userInfo.value = { email: info.email, email_verified: info.email_verified, expires_at: info.expires_at }
+          userInfoToken = token
+        }
         loginReason.value = ''
         appStatus.value = 'ready'
       } catch (error) {
@@ -222,7 +235,7 @@ export const useAuthStore = defineStore('auth', () => {
     const response = await authApi.login(credentials)
     try {
       saveSession(response.user, response.session_token, response.expires_at)
-      // The destination's guard authenticates first, then loads appInfo if needed.
+      // The destination's guard authenticates first, then loads userInfo if needed.
       loginReason.value = ''
       appStatus.value = 'ready'
     } catch (error) {
@@ -242,7 +255,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   return {
-    user, sessionToken, expiresAt, appInfo, appStatus, appError, isRouteLoading, loginReason, returnTo, pendingRoute,
+    user, sessionToken, expiresAt, userInfo, appStatus, appError, isRouteLoading, loginReason, returnTo, pendingRoute,
     isAuthenticated, hasSession, clearSession, signIn, signOut,
     initializeApp, endSession, rememberPage,
   }

@@ -151,6 +151,7 @@ the current structure; the existing `python template.py` command delegates to it
 | Table | Data |
 | --- | --- |
 | `users` | UUID, unique normalized email, password hash, verification time, timestamps |
+| `user_profile` | User UUID as primary/foreign key, optional full name, age, numeric gender and ethnicity IDs, height in cm, weight in kg |
 | `auth_tokens` | UUID, user foreign key, unique hashed token, purpose, expiry and consumption timestamps |
 | `alembic_version` | Applied migration revision |
 
@@ -168,11 +169,14 @@ except the empty `204` logout response. Errors have the shape
 | Endpoint | JSON body | Success |
 | --- | --- | --- |
 | `GET /authenticate` | None; requires Bearer JWT | `200`: `status: "valid"`, `expires_at`; `401`: `status: "invalid"` or `"expired"` with the normal error object |
-| `GET /appInfo` | None; requires Bearer token | `200`: `name`, `service`, `status`, authenticated `user`, and JWT `expires_at`; fetched once per page load after authentication |
+| `GET /userInfo` | None; requires Bearer token | `200`: only `email`, `email_verified`, and JWT `expires_at`; fetched after authentication and cached for the current session on the page |
 | `POST /auth/register` | `{"email":"doctor@example.com","password":"long-secure-password"}` | `201`: user and verification message |
 | `POST /auth/login` | `{"email":"doctor@example.com","password":"long-secure-password"}` | `200`: user, signed JWT in `session_token`, `token_type`, `expires_at` |
 | `POST /auth/logout` | None; requires Bearer token | `204`: valid JWT acknowledged; client discards the token |
 | `GET /auth/me` | None; requires Bearer token | `200`: `{"user":{...}}` |
+| `GET /getUserProfile` | None; requires Bearer token | `200`: only `profile`, including `isProfileCompleted` |
+| `GET /getEthnicities` | None; requires Bearer JWT; no database access | `200`: `{"ethnicities":[{"id":1,"name":"Aboriginal or Torres Strait Islander"},...]}` |
+| `PATCH /updateUserProfile` | Any subset of `full_name`, `age`, `gender`, `height_cm`, `weight_kg`, `ethnicity`; requires Bearer token | `200`: updated `profile` including `isProfileCompleted` |
 | `POST /auth/verify-email` | `{"token":"TOKEN_FROM_EMAIL"}` | `200`: email verified |
 | `POST /auth/forgot-password` | `{"email":"doctor@example.com"}` | `202`: same message whether an account exists |
 | `POST /auth/reset-password` | `{"token":"TOKEN_FROM_EMAIL","password":"new-secure-password"}` | `200`: password updated; existing JWTs remain valid until expiry |
@@ -214,7 +218,7 @@ Authorization: Bearer SIGNED_JWT
 Authentication is stateless: login issues an HS256-signed JWT, and protected APIs
 validate the signature, fixed algorithm, issuer, audience, token purpose, subject,
 and required time claims. No login sessions or access tokens are stored in the
-database. `GET /authenticate` performs no database queries. `/appInfo` and `/auth/me`
+database. `GET /authenticate` performs no database queries. `/userInfo` and `/auth/me`
 still read account data from `users`; login checks the stored password hash.
 Every protected API validates its own JWT independently of frontend route checks.
 
@@ -270,6 +274,74 @@ python -m flask --app app db upgrade 0002_remove_user_name:0003_stateless_jwt --
 ```
 
 Downgrading recreates an empty session table; deleted sessions cannot be restored.
+
+### User profiles and manual migration
+
+The authenticated `/profile` page reads `GET /getUserProfile`. Its
+"Complete your profile" button opens `/update-profile`, which saves changes with
+`PATCH /updateUserProfile`. Completed profiles offer "Update your profile" instead.
+Both endpoints use the JWT subject to select the current user and reject deleted
+accounts. Profile responses use `Cache-Control: no-store`.
+
+All six fields are nullable. Omitted fields stay unchanged; explicit `null` or a
+blank string clears a saved value. An empty update is a read-only no-op. Reading
+an unsaved profile returns null details and `isProfileCompleted: false` without
+inserting a row. Profile updates use an atomic upsert keyed by the current user's
+ID, including concurrent first saves. Clients cannot update identity or completion.
+
+`isProfileCompleted` is calculated by the backend on every response and is true
+when all six details are present. An age of zero is valid. "Other" and "Prefer
+not to say" count as filled ethnicity choices. Full names are trimmed and limited
+to 200 characters; age must be an integer from 0 to 150; height must be greater
+than 0 and at most 300 cm; weight must be greater than 0 and at most 1000 kg.
+Measurements accept up to two decimal places. Gender accepts only integer IDs
+`1` (Male) and `2` (Female); those choices are hardcoded in the UI. There is no
+gender lookup endpoint. Ethnicity accepts a positive integer ID from the
+immutable catalog in `src/api/profile/constants.py`, shared by validation and
+`GET /getEthnicities`. That endpoint returns `{id, name}` choices and validates
+the JWT without communicating with the database. Keep existing ethnicity IDs
+unchanged when editing labels or their display order. The full original list
+has IDs 1 through 16. Add new choices with unused positive integer IDs; no schema
+migration is needed to extend the catalog. IDs 10 and above are supported.
+
+Profile responses keep `gender` and `ethnicity` as numeric IDs and also include
+the user's `ethnicity_name` for display. The summary uses its local gender labels
+and that ethnicity name, so it still fetches only user information. The update
+form fetches profile details and ethnicity choices in parallel and saves IDs.
+Strings, booleans, fractions, and unknown IDs are rejected before persistence.
+
+Migration `0004_user_profile` is **prepared, not applied**. It adds only
+`user_profile`, with `id` as both its primary key and a foreign key to `users.id`
+using `ON DELETE CASCADE`. No existing users need backfilling. From the repository
+root, apply it manually when ready:
+
+```powershell
+cd backend
+.venv\Scripts\python.exe -m flask --app app db upgrade 0005_profile_choice_ids
+```
+
+This also applies any pending earlier migrations; review those before upgrading.
+To preview just the profile migration without connecting to or changing a database:
+
+```powershell
+.venv\Scripts\python.exe -m flask --app app db upgrade 0003_stateless_jwt:0004_user_profile --sql
+```
+
+Migration `0005_profile_choice_ids` is also **prepared, not applied**. It converts
+the existing text `gender` into nullable `SMALLINT` IDs and `ethnicity` into
+nullable `INTEGER` IDs, with constraints for gender 1/2 and positive ethnicity
+IDs. The original `0004` is
+unchanged, so the same upgrade command works whether or not it was already applied.
+Existing Male/Female values become 1/2. Other old gender values become null.
+All sixteen original ethnicity labels, including "Prefer not to say", map to
+distinct IDs and can be restored by downgrading; no groups are combined. Users
+can re-enter cleared gender details later. Downgrading cannot recover unsupported
+gender values cleared during the conversion.
+Review this conversion before applying the migration manually. Preview it offline:
+
+```powershell
+.venv\Scripts\python.exe -m flask --app app db upgrade 0004_user_profile:0005_profile_choice_ids --sql
+```
 
 ## Development email
 

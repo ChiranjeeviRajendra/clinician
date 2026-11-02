@@ -3,7 +3,7 @@ import { setImmediate } from 'node:timers'
 import assert from 'node:assert/strict'
 import { apiRequest, ApiError } from '../src/services/http.js'
 import { authApi } from '../src/services/auth.js'
-import { appApi } from '../src/services/app.js'
+import { userApi } from '../src/services/user.js'
 import { sendMessage } from '../src/services/chat.js'
 import { cancelRouteRequests } from '../src/services/route-requests.js'
 
@@ -29,11 +29,12 @@ for (const [status, code] of [['invalid', 'unauthorized'], ['expired', 'session_
   })
 }
 
-test('appInfo checks the saved bearer token without caching the result', async () => {
-  const fetchMock = mock.method(globalThis, 'fetch', async () => Response.json({ name: 'Clinician' }))
-  assert.equal((await appApi.info('saved-token')).name, 'Clinician')
+test('userInfo checks the saved bearer token without caching the result', async () => {
+  const info = { email: 'doctor@example.com', email_verified: true, expires_at: '2026-12-01T00:00:00+00:00' }
+  const fetchMock = mock.method(globalThis, 'fetch', async () => Response.json(info))
+  assert.deepEqual(await userApi.info('saved-token'), info)
   const [url, options] = fetchMock.mock.calls[0].arguments
-  assert.equal(url, '/api/appInfo')
+  assert.equal(url, '/api/userInfo')
   assert.equal(options.method, 'GET')
   assert.equal(options.headers.Authorization, 'Bearer saved-token')
   assert.equal(options.cache, 'no-store')
@@ -99,14 +100,14 @@ test('slow requests abort and clear their timeout', async () => {
   await assert.rejects(apiRequest('/chat', { timeout: 5 }), (error) => error.code === 'request_timeout')
 })
 
-test('an external cancellation aborts appInfo without reporting a timeout', async () => {
+test('an external cancellation aborts userInfo without reporting a timeout', async () => {
   let requestSignal
   mock.method(globalThis, 'fetch', (_url, options) => new Promise((_resolve, reject) => {
     requestSignal = options.signal
     options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
   }))
   const controller = new AbortController()
-  const request = appApi.info('saved-token', { signal: controller.signal })
+  const request = userApi.info('saved-token', { signal: controller.signal })
   controller.abort()
   await assert.rejects(request, (error) => error.code === 'request_cancelled')
   assert.equal(requestSignal.aborted, true)
@@ -116,7 +117,7 @@ test('a signal canceled before the request skips fetch entirely', async () => {
   const fetchMock = mock.method(globalThis, 'fetch', async () => Response.json({}))
   const controller = new AbortController()
   controller.abort()
-  await assert.rejects(appApi.info('saved-token', { signal: controller.signal }), (error) => error.code === 'request_cancelled')
+  await assert.rejects(userApi.info('saved-token', { signal: controller.signal }), (error) => error.code === 'request_cancelled')
   assert.equal(fetchMock.mock.callCount(), 0)
 })
 
@@ -141,7 +142,7 @@ test('cancellation while reading a response remains a cancellation error', async
     }),
   }))
   const controller = new AbortController()
-  const request = appApi.info('saved-token', { signal: controller.signal })
+  const request = userApi.info('saved-token', { signal: controller.signal })
   await new Promise((resolve) => setImmediate(resolve))
   controller.abort()
   await assert.rejects(request, (error) => error.code === 'request_cancelled')

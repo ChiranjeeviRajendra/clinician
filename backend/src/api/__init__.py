@@ -37,22 +37,24 @@ def create_app(test_config=None):
     from . import models  # Register metadata for migrations.
     from .auth.routes import auth, require_auth
     from .chat.routes import chat
+    from .profile.routes import profile
     from .auth.errors import AuthError
     from .auth.jwt_tokens import token_expiry
     from .auth.service import authenticated_user
 
     app.register_blueprint(auth)
     app.register_blueprint(chat)
+    app.register_blueprint(profile)
 
     @app.get("/")
     def service_info():
         return jsonify(service="clinician-api", status="ok")
 
-    @app.get("/appInfo")
+    @app.get("/userInfo")
     @require_auth
-    def app_info():
-        return jsonify(name="Clinician", service="clinician-api", status="ok",
-                       user=authenticated_user(g.auth_claims).to_dict(),
+    def user_info():
+        user = authenticated_user(g.auth_claims)
+        return jsonify(email=user.email, email_verified=user.email_verified_at is not None,
                        expires_at=token_expiry(g.auth_claims))
 
     @app.get("/authenticate")
@@ -90,7 +92,10 @@ def create_app(test_config=None):
 
     @app.after_request
     def auth_headers(response):
-        if request.path.startswith("/auth/") or request.path in ("/appInfo", "/authenticate"):
+        if request.path.startswith("/auth/") or request.path in (
+            "/userInfo", "/authenticate", "/getUserProfile", "/updateUserProfile",
+            "/getEthnicities",
+        ):
             response.headers["Cache-Control"] = "no-store"
             response.headers["Pragma"] = "no-cache"
         return response

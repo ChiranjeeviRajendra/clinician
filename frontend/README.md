@@ -40,7 +40,17 @@ Vite requires port 5173 so it matches the backend's default email-link URL.
   `weak_password` or `invalid_email` display the server's message in the form.
 - `/home`: default landing page when no previous page is saved, with links to Chat with AI,
   Profile, and Faxes. The Clinician logo returns to this page.
-- `/profile` and `/faxes`: empty authenticated pages reserved for future work.
+- `/profile`: authenticated personal details and backend completion status. The
+  "Complete your profile" button opens `/update-profile`; completed profiles can
+  still be edited with "Update your profile".
+- `/update-profile`: optional full name, age, gender, height in cm, weight in kg,
+  and ethnicity. Gender is hardcoded as Male (`1`) and Female (`2`). Loads saved
+  details from `GET /getUserProfile` and `{id, name}` ethnicity choices separately
+  from `GET /getEthnicities` in parallel; both dropdowns save numeric IDs;
+  saves only changed fields with `PATCH /updateUserProfile`. Blank values clear
+  saved details, and partial profiles can be saved and completed later. Requires
+  the manually applied backend migrations through `0005_profile_choice_ids`.
+- `/faxes`: empty authenticated page reserved for future work.
 - `/verify-email#token=...`: confirm the verification link sent after registration.
   Accounts must verify their email before login.
 - `/forgot-password` and `/reset-password#token=...`: request and complete a reset.
@@ -53,11 +63,12 @@ SMTP can be configured in `backend/.env` for real email delivery.
 
 The signed JWT and cached user are kept in Pinia and the current tab's
 `sessionStorage`. Before every route navigation (including query/fragment changes),
-`GET /authenticate` validates the saved token before app metadata or page requests.
-No authentication or app-info request is made without a token in tab storage.
+`GET /authenticate` validates the saved token before user information or page requests.
+No authentication or user-info request is made without a token in tab storage.
 Known local expiry clears the token immediately. A successful initial authentication
-is followed by `GET /appInfo`, once per page lifetime. App metadata is cached in
-memory across routes and logout/login; refreshing the browser loads it again.
+is followed by `GET /userInfo`, returning only `email`, `email_verified`, and
+`expires_at`. User information is cached in memory for the current session across
+routes. Logout or expiry clears it; a new session or browser refresh loads it again.
 Failed or canceled bootstrap calls can be retried and are never cached as success.
 
 The loading overlay covers only the routed content; the navbar stays clickable.
@@ -112,7 +123,7 @@ npm run build
 ```
 
 Tests use Node's built-in test runner and mock the HTTP boundary to verify API
-payloads, failures, timeouts, JWT authentication before metadata/page loading, one metadata load per page lifetime,
+payloads, failures, timeouts, JWT authentication before user-info/page loading, user information cached per session,
 route cancellation, local logout, and token expiration.
 The production build is written to `dist/`.
 

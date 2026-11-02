@@ -62,11 +62,11 @@ def test_register_verify_login_me_logout(client, mailbox, app):
     with app.app_context():
         assert validate_access_token(response.json["session_token"])["sub"] == response.json["user"]["id"]
     assert client.get("/auth/me", headers=headers).json["user"]["email_verified"] is True
-    assert client.get("/appInfo", headers=headers).status_code == 200
+    assert client.get("/userInfo", headers=headers).status_code == 200
     assert client.post("/auth/logout", headers=headers).status_code == 204
     # Stateless logout does not revoke a copied token.
     assert client.get("/authenticate", headers=headers).status_code == 200
-    assert client.get("/appInfo", headers=headers).status_code == 200
+    assert client.get("/userInfo", headers=headers).status_code == 200
     assert client.post("/auth/logout", headers=headers).status_code == 204
 
 
@@ -133,7 +133,7 @@ def test_expired_jwt(client, mailbox, app):
         claims["exp"] = int(utcnow().timestamp()) - 1
         expired = jwt.encode(claims, app.config["JWT_SECRET_KEY"], algorithm="HS256")
     headers = {"Authorization": "Bearer " + expired}
-    for path in ("/auth/me", "/appInfo", "/authenticate"):
+    for path in ("/auth/me", "/userInfo", "/authenticate"):
         response = client.get(path, headers=headers)
         assert response.status_code == 401
         assert response.json["error"]["code"] == "session_expired"
