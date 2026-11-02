@@ -151,7 +151,14 @@ def test_flask_registers_iam_for_app_and_migration_engine_without_contacting_aws
     assert client.get("/").status_code == 200
     assert client.get("/appInfo").status_code == 401
     aws.client.generate_db_auth_token.side_effect = NoCredentialsError()
-    response = client.get("/appInfo", headers={"Authorization": "Bearer saved-token"})
+    import uuid
+    from src.api.auth.jwt_tokens import issue_access_token
+    with app.app_context():
+        token, _ = issue_access_token(uuid.uuid4())
+    # A valid JWT succeeds without AWS; account data still needs the database.
+    headers = {"Authorization": f"Bearer {token}"}
+    assert client.get("/authenticate", headers=headers).status_code == 200
+    response = client.get("/appInfo", headers=headers)
     assert response.status_code == 503
     assert "AWS" not in response.get_data(as_text=True)
     with app.app_context():

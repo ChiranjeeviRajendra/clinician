@@ -1,5 +1,6 @@
 import hashlib
 import secrets
+import uuid
 from datetime import timedelta
 from smtplib import SMTPException
 
@@ -9,10 +10,11 @@ from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from ..extensions import db
-from ..models import AuthSession, AuthToken, User
+from ..models import AuthToken, User
 from ..models.auth import utcnow
 from ..services.mail import send_email
 from .errors import AuthError
+from .jwt_tokens import issue_access_token
 
 # Keep unknown-user login work comparable to an incorrect password.
 DUMMY_PASSWORD_HASH = generate_password_hash(secrets.token_urlsafe(32))
@@ -62,7 +64,7 @@ def register(email, password):
 
 
 def login(email, password):
-    # Serialize password changes and login so a reset cannot leave a racing session valid.
+    # Serialize password verification with concurrent password changes.
     user = db.session.scalar(select(User).where(User.email == email).with_for_update())
     password_hash = user.password_hash if user else DUMMY_PASSWORD_HASH
     valid = check_password_hash(password_hash, password)
@@ -70,31 +72,17 @@ def login(email, password):
         raise AuthError("invalid_credentials", "Invalid email or password.", 401)
     if user.email_verified_at is None:
         raise AuthError("email_not_verified", "Verify your email before logging in.", 403)
-    raw = secrets.token_urlsafe(32)
-    now = utcnow()
-    session = AuthSession(user_id=user.id, token_hash=hash_token(raw),
-                          created_at=now,
-                          expires_at=now + timedelta(seconds=current_app.config["SESSION_TTL_SECONDS"]))
-    db.session.add(session)
+    raw, expires_at = issue_access_token(user.id)
     db.session.commit()
-    return user, raw, session.expires_at
+    return user, raw, expires_at
 
 
-def authenticated_session(raw):
-    now = utcnow()
-    session = db.session.scalar(select(AuthSession).where(
-        AuthSession.token_hash == hash_token(raw),
-    ))
-    if session is None or session.revoked_at is not None:
-        raise AuthError("unauthorized", "A valid session is required.", 401)
-    # Also apply the configured maximum age to sessions issued before a TTL change.
-    if (session.expires_at <= now or
-            session.created_at <= now - timedelta(seconds=current_app.config["SESSION_TTL_SECONDS"])):
-        raise AuthError("session_expired", "Your login session expired. Please login to continue.", 401)
-    user = db.session.get(User, session.user_id)
+def authenticated_user(claims):
+    # Account data is loaded only by endpoints that need it, not by authentication.
+    user = db.session.get(User, uuid.UUID(claims["sub"]))
     if user is None:
         raise AuthError("unauthorized", "A valid session is required.", 401)
-    return session, user
+    return user
 
 
 def usable_token(raw, purpose):
@@ -140,7 +128,4 @@ def reset_password(raw, password):
         AuthToken.user_id == user.id, AuthToken.purpose == "reset_password",
         AuthToken.consumed_at.is_(None),
     ).values(consumed_at=now))
-    db.session.execute(update(AuthSession).where(
-        AuthSession.user_id == user.id, AuthSession.revoked_at.is_(None),
-    ).values(revoked_at=now))
     db.session.commit()

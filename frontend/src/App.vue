@@ -2,7 +2,7 @@
   <div class="app-shell">
     <Navbar v-if="showNavigation" />
     <div class="route-region" :class="{ 'with-navigation': showNavigation }">
-      <div :inert="auth.isAppInfoLoading" :aria-busy="auth.isAppInfoLoading">
+      <div :inert="auth.isRouteLoading" :aria-busy="auth.isRouteLoading">
         <main v-if="auth.appStatus === 'ready' && (!route.meta.requiresAuth || auth.isAuthenticated)" id="main-content">
           <RouterView :key="route.path" />
         </main>
@@ -12,10 +12,10 @@
             <p>{{ auth.appError }}</p>
             <button class="primary-button" @click="retry">Try again</button>
           </template>
-          <p v-else-if="!auth.isAppInfoLoading">Loading Clinician...</p>
+          <p v-else-if="!auth.isRouteLoading">Loading Clinician...</p>
         </section>
       </div>
-      <div v-if="auth.isAppInfoLoading" class="route-loader" role="status" aria-live="polite">
+      <div v-if="auth.isRouteLoading" class="route-loader" role="status" aria-live="polite">
         <span class="route-loader-spinner" aria-hidden="true"></span>
         <p>Loading Clinician...</p>
       </div>

@@ -1,3 +1,3 @@
-from .auth import AuthSession, AuthToken, User
+from .auth import AuthToken, User
 
-__all__ = ["AuthSession", "AuthToken", "User"]
+__all__ = ["AuthToken", "User"]

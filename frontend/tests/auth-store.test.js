@@ -28,58 +28,38 @@ afterEach(() => {
   else delete globalThis.sessionStorage
 })
 
-test('sign in saves the token before requesting authenticated appInfo', async () => {
+test('sign in saves the JWT and defers appInfo to route initialization', async () => {
   mock.method(authApi, 'login', async () => session)
-  const profile = mock.method(appApi, 'info', async () => {
-    assert.equal(JSON.parse(sessionStorage.getItem(SESSION_STORAGE_KEY)).sessionToken, session.session_token)
-    return { user, expires_at: session.expires_at }
-  })
+  const profile = mock.method(appApi, 'info', async () => ({ user }))
+  const check = mock.method(authApi, 'authenticate', async () => ({}))
   const auth = useAuthStore()
   await auth.signIn({ email: user.email, password: 'test-password' })
-  assert.equal(profile.mock.calls[0].arguments[0], session.session_token)
+  assert.equal(profile.mock.callCount(), 0)
+  assert.equal(check.mock.callCount(), 0)
   assert.equal(auth.user.email, user.email)
   assert.equal(auth.hasSession(), true)
   const saved = JSON.parse(sessionStorage.getItem(SESSION_STORAGE_KEY))
   assert.equal(saved.sessionToken, session.session_token)
-  assert.equal(saved.user.email, user.email)
   assert.equal('password' in saved, false)
 })
 
-test('a profile failure leaves no client session', async () => {
-  mock.method(authApi, 'login', async () => session)
-  mock.method(appApi, 'info', async () => { throw new ApiError('Unauthorized', 401) })
+test('a failed login leaves no client session', async () => {
+  mock.method(authApi, 'login', async () => { throw new ApiError('Unauthorized', 401) })
   const auth = useAuthStore()
   await assert.rejects(auth.signIn({}))
-  assert.equal(auth.isAuthenticated, false)
   assert.equal(auth.sessionToken, null)
   assert.equal(sessionStorage.getItem(SESSION_STORAGE_KEY), null)
 })
 
-test('sign out revokes the server session and clears client credentials', async () => {
-  const revoke = mock.method(authApi, 'logout', async () => null)
+test('stateless sign out clears credentials without a server call', async () => {
+  const logout = mock.method(authApi, 'logout', async () => { throw new ApiError('Offline', 0) })
   const auth = useAuthStore()
   auth.$patch({ user, sessionToken: session.session_token, expiresAt: session.expires_at })
   sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ user, sessionToken: session.session_token, expiresAt: session.expires_at }))
   await auth.signOut()
-  assert.equal(revoke.mock.calls[0].arguments[0], session.session_token)
+  assert.equal(logout.mock.callCount(), 0)
   assert.equal(auth.isAuthenticated, false)
   assert.equal(sessionStorage.getItem(SESSION_STORAGE_KEY), null)
-})
-
-test('an already expired server session can still be signed out locally', async () => {
-  mock.method(authApi, 'logout', async () => { throw new ApiError('Expired', 401) })
-  const auth = useAuthStore()
-  auth.$patch({ user, sessionToken: session.session_token, expiresAt: session.expires_at })
-  await auth.signOut()
-  assert.equal(auth.sessionToken, null)
-})
-
-test('a failed logout preserves the session for a retry', async () => {
-  mock.method(authApi, 'logout', async () => { throw new ApiError('Unavailable', 503) })
-  const auth = useAuthStore()
-  auth.$patch({ user, sessionToken: session.session_token, expiresAt: session.expires_at })
-  await assert.rejects(auth.signOut())
-  assert.equal(auth.isAuthenticated, true)
 })
 
 test('expired credentials cannot pass the client route guard', () => {

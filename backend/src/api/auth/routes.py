@@ -2,10 +2,10 @@ from functools import wraps
 
 from flask import Blueprint, g, jsonify, request
 
-from ..extensions import db, limiter
-from ..models.auth import utcnow
+from ..extensions import limiter
 from . import service
 from .errors import AuthError
+from .jwt_tokens import validate_access_token
 from .validation import email_address, json_body, password, text
 
 auth = Blueprint("auth", __name__, url_prefix="/auth")
@@ -15,9 +15,9 @@ def require_auth(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
         parts = request.headers.get("Authorization", "").split()
-        if len(parts) != 2 or parts[0].lower() != "bearer" or len(parts[1]) > 512:
+        if len(parts) != 2 or parts[0].lower() != "bearer" or len(parts[1]) > 4096:
             raise AuthError("unauthorized", "A Bearer session token is required.", 401)
-        g.auth_session, g.user = service.authenticated_session(parts[1])
+        g.auth_claims = validate_access_token(parts[1])
         return view(*args, **kwargs)
     return wrapped
 
@@ -42,15 +42,14 @@ def login():
 @auth.post("/logout")
 @require_auth
 def logout():
-    g.auth_session.revoked_at = utcnow()
-    db.session.commit()
+    # Stateless tokens are discarded by the client and remain valid until expiry.
     return "", 204
 
 
 @auth.get("/me")
 @require_auth
 def me():
-    return jsonify(user=g.user.to_dict())
+    return jsonify(user=service.authenticated_user(g.auth_claims).to_dict())
 
 
 @auth.post("/verify-email")

@@ -67,8 +67,8 @@ export const useAuthStore = defineStore('auth', () => {
   const appInfo = ref(null)
   const appStatus = ref('idle')
   const appError = ref('')
-  const appInfoRequests = ref(0)
-  const isAppInfoLoading = computed(() => appInfoRequests.value > 0)
+  const routeRequests = ref(0)
+  const isRouteLoading = computed(() => routeRequests.value > 0)
   const loginReason = ref(restored.reason)
   const returnTo = ref(readStorage(RETURN_TO_STORAGE_KEY))
   const pendingRoute = ref(null)
@@ -82,7 +82,6 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
     sessionToken.value = null
     expiresAt.value = null
-    appInfo.value = null
     removeSavedSession()
   }
 
@@ -101,17 +100,27 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function loadAppInfo(token, { signal } = {}) {
-    appInfoRequests.value += 1
+  async function loadStartup(token, { signal } = {}) {
+    routeRequests.value += 1
     let finished = false
     const finish = () => {
       if (finished) return
       finished = true
-      appInfoRequests.value -= 1
+      routeRequests.value -= 1
     }
     signal?.addEventListener('abort', finish, { once: true })
     try {
-      return await appApi.info(token, { signal })
+      const authentication = await authApi.authenticate(token, { signal })
+      signal?.throwIfAborted()
+      if (authentication.status !== 'valid') {
+        const error = new Error(LOGIN_MESSAGES.denied)
+        error.status = 401
+        error.code = authentication.status === 'expired' ? 'session_expired' : 'unauthorized'
+        throw error
+      }
+      // Cache application metadata for this page lifetime, including across logout.
+      const info = appInfo.value ? null : await appApi.info(token, { signal })
+      return { authentication, info }
     } finally {
       finish()
       signal?.removeEventListener('abort', finish)
@@ -169,11 +178,12 @@ export const useAuthStore = defineStore('auth', () => {
     signal?.addEventListener('abort', abort, { once: true })
     request.promise = (async () => {
       try {
-        const info = await loadAppInfo(token, { signal: request.controller.signal })
+        const { authentication, info } = await loadStartup(token, { signal: request.controller.signal })
         if (request.controller.signal.aborted || initialization !== request || validationVersion !== sessionVersion) return
         const previousExpiry = Date.parse(expiresAt.value)
-        saveSession(info.user, token, info.expires_at, Number.isFinite(previousExpiry) ? previousExpiry : Infinity)
-        appInfo.value = info
+        saveSession(info?.user ?? user.value, token, authentication.expires_at,
+          Number.isFinite(previousExpiry) ? previousExpiry : Infinity)
+        if (info) appInfo.value = { name: info.name, service: info.service, status: info.status }
         loginReason.value = ''
         appStatus.value = 'ready'
       } catch (error) {
@@ -207,12 +217,8 @@ export const useAuthStore = defineStore('auth', () => {
   async function signIn(credentials) {
     const response = await authApi.login(credentials)
     try {
-      const persisted = saveSession(response.user, response.session_token, response.expires_at)
-      if (persisted) {
-        const info = await loadAppInfo(response.session_token)
-        saveSession(info.user, response.session_token, info.expires_at, Date.parse(expiresAt.value))
-        appInfo.value = info
-      }
+      saveSession(response.user, response.session_token, response.expires_at)
+      // The destination's guard authenticates first, then loads appInfo if needed.
       loginReason.value = ''
       appStatus.value = 'ready'
     } catch (error) {
@@ -226,19 +232,13 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function signOut() {
-    if (sessionToken.value) {
-      try {
-        await authApi.logout(sessionToken.value)
-      } catch (error) {
-        if (error.status !== 401) throw error
-      }
-    }
+    // No server-side session exists to revoke; logout also works offline.
     clearSession()
     loginReason.value = ''
   }
 
   return {
-    user, sessionToken, expiresAt, appInfo, appStatus, appError, isAppInfoLoading, loginReason, returnTo, pendingRoute,
+    user, sessionToken, expiresAt, appInfo, appStatus, appError, isRouteLoading, loginReason, returnTo, pendingRoute,
     isAuthenticated, hasSession, clearSession, signIn, signOut,
     initializeApp, endSession, rememberPage,
   }

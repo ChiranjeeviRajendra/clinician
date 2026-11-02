@@ -23,6 +23,9 @@ Add the new settings from `.env.example` to an existing `.env`. Set
 DATABASE_URL=postgresql+psycopg://USER:PASSWORD@localhost:5432/clinician
 ```
 
+Also set `JWT_SECRET_KEY` to a private random value of at least 32 bytes before
+starting Flask or using its CLI (see the JWT configuration below).
+
 URL-encode special characters in credentials. With PostgreSQL already running,
 create the database (requires a role with `CREATEDB`), apply migrations, and start:
 
@@ -148,7 +151,6 @@ the current structure; the existing `python template.py` command delegates to it
 | Table | Data |
 | --- | --- |
 | `users` | UUID, unique normalized email, password hash, verification time, timestamps |
-| `auth_sessions` | UUID, user foreign key, unique hashed session token, expiry and revocation timestamps |
 | `auth_tokens` | UUID, user foreign key, unique hashed token, purpose, expiry and consumption timestamps |
 | `alembic_version` | Applied migration revision |
 
@@ -165,14 +167,15 @@ except the empty `204` logout response. Errors have the shape
 
 | Endpoint | JSON body | Success |
 | --- | --- | --- |
-| `GET /appInfo` | None; requires Bearer token | `200`: `name`, `service`, `status`, authenticated `user`, and effective session `expires_at` |
+| `GET /authenticate` | None; requires Bearer JWT | `200`: `status: "valid"`, `expires_at`; `401`: `status: "invalid"` or `"expired"` with the normal error object |
+| `GET /appInfo` | None; requires Bearer token | `200`: `name`, `service`, `status`, authenticated `user`, and JWT `expires_at`; fetched once per page load after authentication |
 | `POST /auth/register` | `{"email":"doctor@example.com","password":"long-secure-password"}` | `201`: user and verification message |
-| `POST /auth/login` | `{"email":"doctor@example.com","password":"long-secure-password"}` | `200`: user, `session_token`, `token_type`, `expires_at` |
-| `POST /auth/logout` | None; requires Bearer token | `204`: session revoked |
+| `POST /auth/login` | `{"email":"doctor@example.com","password":"long-secure-password"}` | `200`: user, signed JWT in `session_token`, `token_type`, `expires_at` |
+| `POST /auth/logout` | None; requires Bearer token | `204`: valid JWT acknowledged; client discards the token |
 | `GET /auth/me` | None; requires Bearer token | `200`: `{"user":{...}}` |
 | `POST /auth/verify-email` | `{"token":"TOKEN_FROM_EMAIL"}` | `200`: email verified |
 | `POST /auth/forgot-password` | `{"email":"doctor@example.com"}` | `202`: same message whether an account exists |
-| `POST /auth/reset-password` | `{"token":"TOKEN_FROM_EMAIL","password":"new-secure-password"}` | `200`: password updated; all sessions revoked |
+| `POST /auth/reset-password` | `{"token":"TOKEN_FROM_EMAIL","password":"new-secure-password"}` | `200`: password updated; existing JWTs remain valid until expiry |
 | `POST /chat` | `{"message":"What is hypertension?"}`; requires Bearer token | `200`: `{"answer":"..."}` |
 
 Chat messages must contain 1–8000 characters after trimming. Chat uses the same
@@ -202,24 +205,71 @@ Email validation checks syntax without DNS or mailbox-existence lookups;
 verification emails establish ownership. Forms display the server's error
 message. Login verifies existing credentials without applying new-password rules.
 
-Use the opaque session token from login for authenticated requests:
+Use the signed access JWT from login for authenticated requests:
 
 ```http
-Authorization: Bearer SESSION_TOKEN
+Authorization: Bearer SIGNED_JWT
 ```
 
-Sessions are stored server-side and expire in 12 hours by default
-(`SESSION_TTL_SECONDS=43200`). Authentication also checks session age, so previously
-issued sessions cannot exceed the currently configured lifetime. Expired sessions
-return `401` with error code `session_expired`; unknown or revoked tokens return
-`401 unauthorized`. Verification
-tokens expire in 24 hours; reset tokens in 30 minutes. Email tokens are single-use.
-A new reset request invalidates previous reset tokens. Tokens are cryptographically
-random and only SHA-256 hashes are persisted. Password resets and token consumption
-use PostgreSQL row locks to prevent token replay and races with login. Tokens and
-password hashes are never included in user responses. Use HTTPS outside localhost
-and keep Bearer credentials out of URLs. The Vue client stores its session in
-the current tab's `sessionStorage` and removes it on logout or expiration.
+Authentication is stateless: login issues an HS256-signed JWT, and protected APIs
+validate the signature, fixed algorithm, issuer, audience, token purpose, subject,
+and required time claims. No login sessions or access tokens are stored in the
+database. `GET /authenticate` performs no database queries. `/appInfo` and `/auth/me`
+still read account data from `users`; login checks the stored password hash.
+Every protected API validates its own JWT independently of frontend route checks.
+
+JWTs expire in 12 hours by default (`SESSION_TTL_SECONDS=43200`); reducing this
+setting also limits tokens already issued. Expired tokens return `401` with
+`session_expired`; malformed tokens, bad signatures, and old opaque session tokens
+return `401 unauthorized`. `/authenticate` additionally returns `status: "expired"`
+or `status: "invalid"`; a valid token returns `200` with `status: "valid"` and
+`expires_at`. These responses and app/account responses use `Cache-Control: no-store`.
+
+Set `JWT_SECRET_KEY` in `backend/.env` to a private, persistent random secret of
+at least 32 bytes. Generate a value manually with:
+
+```powershell
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Use the same secret and `JWT_ISSUER` / `JWT_AUDIENCE` settings on all backend workers.
+Never put the secret in frontend configuration or commit it. Startup fails if the
+secret is missing or too short. Changing the secret invalidates all existing JWTs.
+JWT payloads are signed, not encrypted, and contain no password or account profile.
+
+Logout clears the browser's JWT locally, including when offline. The compatibility
+`POST /auth/logout` endpoint validates the JWT and returns `204`, without revocation.
+Copied JWTs remain valid until expiry after logout, password reset, or account
+changes. There is no per-token revocation or automatic refresh in this architecture.
+Shorter token lifetimes reduce that window. A fresh login is required after expiry.
+
+Email verification and password-reset links keep their separate `auth_tokens`
+records so they can expire and be consumed exactly once. Only SHA-256 hashes of
+those random email tokens are persisted. Verification links expire in 24 hours,
+reset links in 30 minutes. New reset requests invalidate previous reset links;
+row locks protect consumption and password updates from races. Use HTTPS outside
+localhost and keep Bearer credentials out of URLs. The frontend keeps its JWT and
+cached user in the current tab's `sessionStorage` and clears both on logout/expiry.
+
+### Manually migrate existing installations to JWT authentication
+
+Migration `0003_stateless_jwt` is prepared, not automatically applied. It drops
+`auth_sessions` and its stored sessions. Existing opaque tokens will no longer
+work; users must sign in again. No database change runs at application startup.
+From `backend`, after installing the updated requirements and configuring the
+signing secret, run this yourself when ready:
+
+```powershell
+python -m flask --app app db upgrade
+```
+
+To inspect the change without connecting to or updating a database:
+
+```powershell
+python -m flask --app app db upgrade 0002_remove_user_name:0003_stateless_jwt --sql
+```
+
+Downgrading recreates an empty session table; deleted sessions cannot be restored.
 
 ## Development email
 
@@ -245,6 +295,18 @@ multiple workers. Trust proxy headers only after configuring the actual proxy.
 
 ## Tests
 
+For agents and routine verification under `AGENTS.md`, run only the database-free
+unit and mocked AI suites:
+
+```powershell
+python -m pytest tests/unit tests/ai -q
+```
+
+The PostgreSQL integration suite below changes database objects and data; it must
+be run manually by the user. It has been updated for JWTs but is not part of the
+agent's allowed checks.
+
+
 Create a separate local test database, owned by your development role, then set:
 
 ```dotenv
@@ -258,7 +320,7 @@ python -m pytest -q
 Tests run the real migrations in a randomly named, isolated schema and remove
 only that schema afterward. The role needs schema creation permission in the
 test database. Tests cover the full lifecycle, validation, email uniqueness,
-hash storage, expiration, token purpose/reuse, revocation, mail rollback, and
+email-token hash storage, JWT expiry/signatures, token purpose/reuse, mail rollback, and
 concurrent use of a reset token. Chat and AI regression tests preserve the route
 contract, retrieval configuration, prompt wiring, document processing, and lazy
 provider initialization. AI provider calls are mocked and do not make network

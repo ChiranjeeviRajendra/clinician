@@ -1,4 +1,5 @@
 import { afterEach, mock, test } from 'node:test'
+import { setImmediate } from 'node:timers'
 import assert from 'node:assert/strict'
 import { apiRequest, ApiError } from '../src/services/http.js'
 import { authApi } from '../src/services/auth.js'
@@ -10,6 +11,23 @@ afterEach(() => {
   cancelRouteRequests()
   mock.restoreAll()
 })
+
+test('authenticate sends the JWT and preserves server expiry', async () => {
+  const result = { status: 'valid', expires_at: '2026-12-01T00:00:00+00:00' }
+  const fetchMock = mock.method(globalThis, 'fetch', async () => Response.json(result))
+  assert.deepEqual(await authApi.authenticate('signed-jwt'), result)
+  const [url, options] = fetchMock.mock.calls[0].arguments
+  assert.equal(url, '/api/authenticate')
+  assert.equal(options.headers.Authorization, 'Bearer signed-jwt')
+  assert.equal(options.cache, 'no-store')
+})
+
+for (const [status, code] of [['invalid', 'unauthorized'], ['expired', 'session_expired']]) {
+  test(`authenticate exposes the ${status} token reason to route guards`, async () => {
+    mock.method(globalThis, 'fetch', async () => Response.json({ status, error: { code, message: status } }, { status: 401 }))
+    await assert.rejects(authApi.authenticate('jwt'), (error) => error.status === 401 && error.code === code)
+  })
+}
 
 test('appInfo checks the saved bearer token without caching the result', async () => {
   const fetchMock = mock.method(globalThis, 'fetch', async () => Response.json({ name: 'Clinician' }))

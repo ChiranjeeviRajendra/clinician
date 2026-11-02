@@ -4,6 +4,7 @@ import { apiRequest } from './http.js'
 const accountRequest = (path, options) => apiRequest(path, { ...options, routeScoped: false })
 
 export const authApi = {
+  authenticate: (token, { signal } = {}) => accountRequest('/authenticate', { token, signal }),
   register: (body) => accountRequest('/auth/register', { method: 'POST', body }),
   login: (body) => accountRequest('/auth/login', { method: 'POST', body }),
   me: (token) => accountRequest('/auth/me', { token }),
