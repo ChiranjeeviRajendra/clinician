@@ -24,6 +24,7 @@ def send_email(recipient, subject, body):
     with smtplib.SMTP(config["SMTP_HOST"], config["SMTP_PORT"], timeout=10) as smtp:
         if config["SMTP_STARTTLS"]:
             import ssl
+
             smtp.starttls(context=ssl.create_default_context())
         if config["SMTP_USERNAME"]:
             smtp.login(config["SMTP_USERNAME"], config["SMTP_PASSWORD"])

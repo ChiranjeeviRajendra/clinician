@@ -23,17 +23,19 @@ def app():
     admin_engine = create_engine(url)
     with admin_engine.begin() as connection:
         connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-    application = create_app({
-        "TESTING": True,
-        "DATABASE_AUTH_MODE": "password",
-        "SQLALCHEMY_DATABASE_URI": url,
-        "SQLALCHEMY_ENGINE_OPTIONS": {
-            "connect_args": {"options": f"-csearch_path={schema}"},
-            "pool_pre_ping": True,
-        },
-        "RATELIMIT_ENABLED": False,
-        "JWT_SECRET_KEY": "integration-tests-only-signing-secret-0123456789abcdef-0123456789abcdef",
-    })
+    application = create_app(
+        {
+            "TESTING": True,
+            "DATABASE_AUTH_MODE": "password",
+            "SQLALCHEMY_DATABASE_URI": url,
+            "SQLALCHEMY_ENGINE_OPTIONS": {
+                "connect_args": {"options": f"-csearch_path={schema}"},
+                "pool_pre_ping": True,
+            },
+            "RATELIMIT_ENABLED": False,
+            "JWT_SECRET_KEY": "integration-tests-only-signing-secret-0123456789abcdef-0123456789abcdef",
+        }
+    )
     try:
         with application.app_context():
             upgrade()

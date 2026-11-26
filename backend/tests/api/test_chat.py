@@ -1,5 +1,5 @@
-from unittest.mock import Mock
 import re
+from unittest.mock import Mock
 
 import pytest
 
@@ -58,7 +58,10 @@ def test_chat_requires_authentication_before_calling_ai(client, monkeypatch):
 
 
 def test_chat_handles_provider_failure_without_exposing_details(client, auth_headers, monkeypatch):
-    monkeypatch.setattr("src.api.chat.routes.get_rag_chain", Mock(side_effect=RuntimeError("sensitive provider details")))
+    monkeypatch.setattr(
+        "src.api.chat.routes.get_rag_chain",
+        Mock(side_effect=RuntimeError("sensitive provider details")),
+    )
     response = client.post("/chat", json={"message": "A question"}, headers=auth_headers)
     assert response.status_code == 503
     assert response.json["error"]["code"] == "assistant_unavailable"
@@ -66,4 +69,7 @@ def test_chat_handles_provider_failure_without_exposing_details(client, auth_hea
 
 
 def test_chat_requires_json_body(client, auth_headers):
-    assert client.post("/chat", data={"message": "A question"}, headers=auth_headers).status_code == 415
+    assert (
+        client.post("/chat", data={"message": "A question"}, headers=auth_headers).status_code
+        == 415
+    )

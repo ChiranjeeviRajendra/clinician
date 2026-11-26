@@ -21,7 +21,9 @@ export const useNotificationsStore = defineStore('notifications', () => {
   onScopeDispose(dismiss)
 
   return {
-    notification, dismiss, show,
+    notification,
+    dismiss,
+    show,
     success: (message) => show(message, 'success'),
     warning: (message) => show(message, 'warning'),
     error: (message) => show(message, 'error'),

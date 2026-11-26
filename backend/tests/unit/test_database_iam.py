@@ -1,4 +1,5 @@
 """Exercise physical connection hooks without AWS or PostgreSQL network calls."""
+
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -13,7 +14,6 @@ from src.api import create_app
 from src.api.config import load_config
 from src.api.database import configure_database_engine
 from src.api.extensions import db
-
 
 URL = "postgresql+psycopg://postgres@database.example.com:5432/clinician"
 
@@ -65,7 +65,10 @@ def test_fresh_tokens_on_new_connections_but_not_pool_reuse(aws, monkeypatch):
         assert engine.url.password is None
         aws.session.client.assert_called_once_with("rds", region_name="ap-southeast-2")
         aws.client.generate_db_auth_token.assert_called_with(
-            DBHostname="database.example.com", Port=5432, DBUsername="postgres", Region="ap-southeast-2",
+            DBHostname="database.example.com",
+            Port=5432,
+            DBUsername="postgres",
+            Region="ap-southeast-2",
         )
     finally:
         engine.dispose()
@@ -74,17 +77,28 @@ def test_fresh_tokens_on_new_connections_but_not_pool_reuse(aws, monkeypatch):
 def test_signs_actual_connection_parameters_and_preserves_custom_ca(aws, monkeypatch, tmp_path):
     ca = tmp_path / "rds-ca.pem"
     ca.write_text("test CA file")
-    engine = create_engine(URL, connect_args={
-        "host": "actual.example.com", "port": 5444, "user": "iam_user",
-        "connect_timeout": 5, "sslrootcert": "another-ca.pem",
-    })
-    configure_database_engine(engine, {"DATABASE_AUTH_MODE": "iam", "DATABASE_SSL_ROOT_CERT": str(ca)})
+    engine = create_engine(
+        URL,
+        connect_args={
+            "host": "actual.example.com",
+            "port": 5444,
+            "user": "iam_user",
+            "connect_timeout": 5,
+            "sslrootcert": "another-ca.pem",
+        },
+    )
+    configure_database_engine(
+        engine, {"DATABASE_AUTH_MODE": "iam", "DATABASE_SSL_ROOT_CERT": str(ca)}
+    )
     connect = fake_database(engine, monkeypatch)
     try:
         with engine.connect():
             pass
         aws.client.generate_db_auth_token.assert_called_once_with(
-            DBHostname="actual.example.com", Port=5444, DBUsername="iam_user", Region="ap-southeast-2",
+            DBHostname="actual.example.com",
+            Port=5444,
+            DBUsername="iam_user",
+            Region="ap-southeast-2",
         )
         assert connect.call_args.kwargs["sslrootcert"] == str(ca)
         assert connect.call_args.kwargs["connect_timeout"] == 5
@@ -123,9 +137,14 @@ def test_failed_aws_client_initialization_can_recover_on_the_next_connection(aws
         engine.dispose()
 
 
-@pytest.mark.parametrize("failure", [
-    NoCredentialsError(), NoRegionError(), TokenRetrievalError(provider="SSO", error_msg="private details"),
-])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        NoCredentialsError(),
+        NoRegionError(),
+        TokenRetrievalError(provider="SSO", error_msg="private details"),
+    ],
+)
 def test_aws_credential_errors_use_safe_database_error_path(aws, monkeypatch, failure):
     aws.client.generate_db_auth_token.side_effect = failure
     engine = create_engine(URL)
@@ -142,17 +161,24 @@ def test_aws_credential_errors_use_safe_database_error_path(aws, monkeypatch, fa
 
 
 def test_flask_registers_iam_for_app_and_migration_engine_without_contacting_aws(aws):
-    app = create_app({
-        "TESTING": True, "DATABASE_AUTH_MODE": "iam", "AWS_REGION": "ap-southeast-2",
-        "SQLALCHEMY_DATABASE_URI": URL, "RATELIMIT_ENABLED": False,
-    })
+    app = create_app(
+        {
+            "TESTING": True,
+            "DATABASE_AUTH_MODE": "iam",
+            "AWS_REGION": "ap-southeast-2",
+            "SQLALCHEMY_DATABASE_URI": URL,
+            "RATELIMIT_ENABLED": False,
+        }
+    )
     aws.factory.assert_not_called()
     client = app.test_client()
     assert client.get("/").status_code == 200
     assert client.get("/userInfo").status_code == 401
     aws.client.generate_db_auth_token.side_effect = NoCredentialsError()
     import uuid
+
     from src.api.auth.jwt_tokens import issue_access_token
+
     with app.app_context():
         token, _ = issue_access_token(uuid.uuid4())
     # A valid JWT succeeds without AWS; account data still needs the database.
@@ -167,10 +193,13 @@ def test_flask_registers_iam_for_app_and_migration_engine_without_contacting_aws
         db.engine.dispose()
 
 
-@pytest.mark.parametrize("settings", [
-    {"DATABASE_AUTH_MODE": "invalid"},
-    {"DATABASE_AUTH_MODE": "iam", "DATABASE_SSL_ROOT_CERT": "missing-ca-file.pem"},
-])
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"DATABASE_AUTH_MODE": "invalid"},
+        {"DATABASE_AUTH_MODE": "iam", "DATABASE_SSL_ROOT_CERT": "missing-ca-file.pem"},
+    ],
+)
 def test_invalid_database_settings_fail_at_startup(settings):
     engine = create_engine(URL)
     try:

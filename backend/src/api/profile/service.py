@@ -18,7 +18,8 @@ def update_user_profile(claims, changes):
     # One atomic upsert handles concurrent first saves. Update only supplied fields.
     statement = insert(UserProfile).values(id=user.id, **changes)
     statement = statement.on_conflict_do_update(
-        index_elements=[UserProfile.id], set_=changes,
+        index_elements=[UserProfile.id],
+        set_=changes,
     ).returning(UserProfile)
     profile = db.session.scalar(statement, execution_options={"populate_existing": True})
     db.session.commit()

@@ -6,10 +6,7 @@ from sqlalchemy import CheckConstraint, Date, ForeignKey, Integer, Numeric, Smal
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..extensions import db
-from ..profile.constants import ETHNICITIES
-
-
-PROFILE_FIELDS = ("full_name", "date_of_birth", "gender", "height_cm", "weight_kg", "ethnicity")
+from ..profile.constants import ETHNICITIES, PROFILE_FIELDS
 
 
 class UserProfile(db.Model):
@@ -22,7 +19,8 @@ class UserProfile(db.Model):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
     )
     full_name: Mapped[str | None] = mapped_column(String(200))
     date_of_birth: Mapped[date | None] = mapped_column(Date)
@@ -42,7 +40,9 @@ class UserProfile(db.Model):
         return {
             "id": str(self.id),
             "full_name": self.full_name,
-            "date_of_birth": self.date_of_birth.isoformat() if self.date_of_birth is not None else None,
+            "date_of_birth": self.date_of_birth.isoformat()
+            if self.date_of_birth is not None
+            else None,
             "gender": self.gender,
             "height_cm": float(self.height_cm) if self.height_cm is not None else None,
             "weight_kg": float(self.weight_kg) if self.weight_kg is not None else None,

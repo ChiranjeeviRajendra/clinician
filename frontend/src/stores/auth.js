@@ -1,61 +1,24 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
+import { ApiError } from '../services/http.js'
 import { authApi } from '../services/auth.js'
 import { userApi } from '../services/user.js'
 import { profileApi } from '../services/profile.js'
+import {
+  SESSION_STORAGE_KEY,
+  RETURN_TO_STORAGE_KEY,
+  readStorage,
+  writeStorage,
+  savedToken,
+  removeSavedSession,
+  restoreSession,
+} from '../services/session-storage.js'
 
-export const SESSION_STORAGE_KEY = 'clinician.auth.session'
-export const RETURN_TO_STORAGE_KEY = 'clinician.auth.returnTo'
 export const LOGIN_MESSAGES = {
   denied: 'You do not have access to the app. Please login to continue.',
   expired: 'Your login session expired. Please login to continue.',
 }
 const SESSION_DURATION_MS = 12 * 60 * 60 * 1000
-
-function readStorage(key) {
-  try {
-    return globalThis.sessionStorage?.getItem(key) ?? null
-  } catch {
-    return null
-  }
-}
-
-function savedToken() {
-  try {
-    const token = JSON.parse(readStorage(SESSION_STORAGE_KEY))?.sessionToken
-    return typeof token === 'string' && token.trim() ? token : null
-  } catch {
-    return null
-  }
-}
-
-function removeSavedSession() {
-  try {
-    globalThis.sessionStorage?.removeItem(SESSION_STORAGE_KEY)
-  } catch {
-    // Storage can be unavailable in restricted browser contexts.
-  }
-}
-
-function restoreSession() {
-  const raw = readStorage(SESSION_STORAGE_KEY)
-  if (!raw) return { session: null, reason: '' }
-  try {
-    const saved = JSON.parse(raw)
-    if (saved && typeof saved.sessionToken === 'string' && saved.sessionToken.trim()) {
-      const expiry = Date.parse(saved.expiresAt)
-      // Initialization enforces expiry once the initial route is known, so a
-      // direct login-page load can check an existing token with the server.
-      if (saved.expiresAt == null || Number.isFinite(expiry)) {
-        return { session: saved, reason: '' }
-      }
-    }
-  } catch {
-    // Discard malformed data and keep login available when storage is blocked.
-  }
-  removeSavedSession()
-  return { session: null, reason: 'denied' }
-}
 
 export const useAuthStore = defineStore('auth', () => {
   const restored = restoreSession()
@@ -98,11 +61,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   function rememberPage(path) {
     returnTo.value = path
-    try {
-      globalThis.sessionStorage?.setItem(RETURN_TO_STORAGE_KEY, path)
-    } catch {
-      // Keep the destination in memory if tab storage is unavailable.
-    }
+    writeStorage(RETURN_TO_STORAGE_KEY, path)
   }
 
   async function loadStartup(token, { signal } = {}) {
@@ -118,20 +77,25 @@ export const useAuthStore = defineStore('auth', () => {
       const authentication = await authApi.authenticate(token, { signal })
       signal?.throwIfAborted()
       if (authentication.status !== 'valid') {
-        const error = new Error(LOGIN_MESSAGES.denied)
-        error.status = 401
-        error.code = authentication.status === 'expired' ? 'session_expired' : 'unauthorized'
-        throw error
+        throw new ApiError(
+          LOGIN_MESSAGES.denied,
+          401,
+          authentication.status === 'expired' ? 'session_expired' : 'unauthorized',
+        )
       }
       // Reuse account information only for the session that loaded it.
-      const [info, profileResponse] = userInfoToken === token ? [null, null] : await Promise.all([
-        userApi.info(token, { signal }),
-        profileApi.getUserProfile(token, { signal, routeScoped: false }).catch((error) => {
-          // Profile availability does not block access to the rest of the app.
-          if (error.status === 401 || error.code === 'request_cancelled' || signal?.aborted) throw error
-          return null
-        }),
-      ])
+      const [info, profileResponse] =
+        userInfoToken === token
+          ? [null, null]
+          : await Promise.all([
+              userApi.info(token, { signal }),
+              profileApi.getUserProfile(token, { signal, routeScoped: false }).catch((error) => {
+                // Profile availability does not block access to the rest of the app.
+                if (error.status === 401 || error.code === 'request_cancelled' || signal?.aborted)
+                  throw error
+                return null
+              }),
+            ])
       return { authentication, info, profile: profileResponse?.profile }
     } finally {
       finish()
@@ -139,20 +103,21 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  function saveSession(profile, token, serverExpiry, maximumExpiry = Infinity) {
-    const expiry = Math.min(Date.parse(serverExpiry), maximumExpiry, Date.now() + SESSION_DURATION_MS)
+  function saveSession(account, token, serverExpiry, maximumExpiry = Infinity) {
+    const expiry = Math.min(
+      Date.parse(serverExpiry),
+      maximumExpiry,
+      Date.now() + SESSION_DURATION_MS,
+    )
     if (!Number.isFinite(expiry) || expiry <= Date.now()) {
-      const error = new Error('The session has expired. Please sign in again.')
-      error.status = 401
-      error.code = 'session_expired'
-      throw error
+      throw new ApiError('The session has expired. Please sign in again.', 401, 'session_expired')
     }
     if (sessionToken.value !== token) {
       userInfo.value = null
       userInfoToken = null
       fullName.value = null
     }
-    user.value = profile
+    user.value = account
     sessionVersion += 1
     sessionToken.value = token
     expiresAt.value = new Date(expiry).toISOString()
@@ -160,15 +125,15 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function persistSession() {
-    try {
-      globalThis.sessionStorage?.setItem(SESSION_STORAGE_KEY, JSON.stringify({
-        user: user.value, fullName: fullName.value, sessionToken: sessionToken.value, expiresAt: expiresAt.value,
-      }))
-      return savedToken() === sessionToken.value
-    } catch {
-      // The active session remains usable if the browser blocks storage.
-      return false
-    }
+    return writeStorage(
+      SESSION_STORAGE_KEY,
+      JSON.stringify({
+        user: user.value,
+        fullName: fullName.value,
+        sessionToken: sessionToken.value,
+        expiresAt: expiresAt.value,
+      }),
+    )
   }
 
   function setProfileName(name, token) {
@@ -192,8 +157,12 @@ export const useAuthStore = defineStore('auth', () => {
       appStatus.value = 'ready'
       return
     }
-    if (initialization && !initialization.controller.signal.aborted && initialization.signal === signal &&
-        initialization.initialLogin === initialLogin) {
+    if (
+      initialization &&
+      !initialization.controller.signal.aborted &&
+      initialization.signal === signal &&
+      initialization.initialLogin === initialLogin
+    ) {
       return initialization.promise
     }
     initialization?.controller.abort()
@@ -211,23 +180,46 @@ export const useAuthStore = defineStore('auth', () => {
     signal?.addEventListener('abort', abort, { once: true })
     request.promise = (async () => {
       try {
-        const { authentication, info, profile } = await loadStartup(token, { signal: request.controller.signal })
-        if (request.controller.signal.aborted || initialization !== request || validationVersion !== sessionVersion) return
+        const { authentication, info, profile } = await loadStartup(token, {
+          signal: request.controller.signal,
+        })
+        if (
+          request.controller.signal.aborted ||
+          initialization !== request ||
+          validationVersion !== sessionVersion
+        )
+          return
         const previousExpiry = Date.parse(expiresAt.value)
-        const account = info ? { email: info.email, email_verified: info.email_verified } : user.value
-        saveSession(account, token, authentication.expires_at, Math.min(
-          Number.isFinite(previousExpiry) ? previousExpiry : Infinity,
-          info ? Date.parse(info.expires_at) : Infinity,
-        ))
+        const account = info
+          ? { email: info.email, email_verified: info.email_verified }
+          : user.value
+        saveSession(
+          account,
+          token,
+          authentication.expires_at,
+          Math.min(
+            Number.isFinite(previousExpiry) ? previousExpiry : Infinity,
+            info ? Date.parse(info.expires_at) : Infinity,
+          ),
+        )
         if (info) {
-          userInfo.value = { email: info.email, email_verified: info.email_verified, expires_at: info.expires_at }
+          userInfo.value = {
+            email: info.email,
+            email_verified: info.email_verified,
+            expires_at: info.expires_at,
+          }
           userInfoToken = token
         }
         if (profile) setProfileName(profile.full_name, token)
         loginReason.value = ''
         appStatus.value = 'ready'
       } catch (error) {
-        if (request.controller.signal.aborted || initialization !== request || validationVersion !== sessionVersion) return
+        if (
+          request.controller.signal.aborted ||
+          initialization !== request ||
+          validationVersion !== sessionVersion
+        )
+          return
         if (error.code === 'request_cancelled') return
         if (error.status === 401) {
           endSession(initialLogin ? '' : error.code === 'session_expired' ? 'expired' : 'denied')
@@ -278,8 +270,26 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   return {
-    user, fullName, displayName, sessionToken, expiresAt, userInfo, appStatus, appError, isRouteLoading, loginReason, returnTo, pendingRoute,
-    isAuthenticated, hasSession, clearSession, signIn, signOut,
-    initializeApp, endSession, rememberPage, setProfileName,
+    user,
+    fullName,
+    displayName,
+    sessionToken,
+    expiresAt,
+    userInfo,
+    appStatus,
+    appError,
+    isRouteLoading,
+    loginReason,
+    returnTo,
+    pendingRoute,
+    isAuthenticated,
+    hasSession,
+    clearSession,
+    signIn,
+    signOut,
+    initializeApp,
+    endSession,
+    rememberPage,
+    setProfileName,
   }
 })

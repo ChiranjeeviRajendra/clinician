@@ -1,25 +1,12 @@
-from functools import wraps
-
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, g, jsonify
 
 from ..extensions import limiter
+from ..validation import json_body, text
 from . import service
-from .errors import AuthError
-from .jwt_tokens import validate_access_token
-from .validation import email_address, json_body, password, text
+from .decorators import require_auth
+from .validation import email_address, password
 
 auth = Blueprint("auth", __name__, url_prefix="/auth")
-
-
-def require_auth(view):
-    @wraps(view)
-    def wrapped(*args, **kwargs):
-        parts = request.headers.get("Authorization", "").split()
-        if len(parts) != 2 or parts[0].lower() != "bearer" or len(parts[1]) > 4096:
-            raise AuthError("unauthorized", "A Bearer session token is required.", 401)
-        g.auth_claims = validate_access_token(parts[1])
-        return view(*args, **kwargs)
-    return wrapped
 
 
 @auth.post("/register")
@@ -27,16 +14,24 @@ def require_auth(view):
 def register():
     body = json_body()
     user = service.register(email_address(body), password(body))
-    return jsonify(user=user.to_dict(), message="Account created. Check your email to verify your account."), 201
+    return jsonify(
+        user=user.to_dict(), message="Account created. Check your email to verify your account."
+    ), 201
 
 
 @auth.post("/login")
 @limiter.limit("10 per minute")
 def login():
     body = json_body()
-    user, token, expires_at = service.login(email_address(body), text(body, "password", maximum=128))
-    return jsonify(user=user.to_dict(), session_token=token, token_type="Bearer",
-                   expires_at=expires_at.isoformat())
+    user, token, expires_at = service.login(
+        email_address(body), text(body, "password", maximum=128)
+    )
+    return jsonify(
+        user=user.to_dict(),
+        session_token=token,
+        token_type="Bearer",
+        expires_at=expires_at.isoformat(),
+    )
 
 
 @auth.post("/logout")

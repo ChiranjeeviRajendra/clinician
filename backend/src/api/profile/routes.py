@@ -1,11 +1,10 @@
 from flask import Blueprint, g, jsonify
 
-from ..auth.routes import require_auth
-from ..auth.validation import json_body
+from ..auth.decorators import require_auth
+from ..validation import json_body
 from . import service
 from .constants import ETHNICITIES
 from .validation import profile_changes
-
 
 profile = Blueprint("profile", __name__)
 

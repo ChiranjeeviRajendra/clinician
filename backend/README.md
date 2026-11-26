@@ -114,12 +114,15 @@ backend/
 |-- app.py                  Flask entry point
 |-- src/                    Common parent for the two application layers
 |   |-- api/                HTTP API and application services
-|   |   |-- __init__.py      Flask application factory and error handlers
+|   |   |-- __init__.py      Flask application factory
 |   |   |-- config.py       Environment configuration
 |   |   |-- extensions.py   Database, migrations, rate limiter
-|   |   |-- auth/           Auth routes, service, validation, errors
+|   |   |-- errors.py       Shared API errors and JSON error handlers
+|   |   |-- validation.py   Shared JSON and text request validation
+|   |   |-- auth/           Account/session routes, authentication, and validation
 |   |   |-- chat/           Chat HTTP routes; calls src.ai.rag
 |   |   |-- models/         PostgreSQL models
+|   |   |-- profile/        Profile routes, validation, service, and choice IDs
 |   |   `-- services/       Email delivery
 |   `-- ai/                 AI orchestration; independent of Flask
 |       |-- embeddings.py   Embedding model construction
@@ -127,8 +130,9 @@ backend/
 |       |-- rag.py          Cached retrieval and answer generation pipeline
 |       `-- ingestion.py    PDF loading, chunking, Pinecone indexing
 |-- migrations/versions/    Versioned schema changes
-|-- scripts/                Database setup and scaffolding utilities
+|-- scripts/                Manual database setup
 |-- tests/
+|   |-- unit/               Database-free contracts and validation
 |   |-- api/                Auth, migrations, and chat HTTP regression tests
 |   `-- ai/                 AI orchestration tests with mocked providers
 |-- data/                   Source PDFs
@@ -142,11 +146,11 @@ AI dependencies and models load only when retrieval or ingestion is invoked.
 Python module names use `snake_case`; feature packages group related routes,
 validation, and service logic. Migrations and runtime data stay outside `src`.
 
-Run ingestion from `backend` with `python -m src.ai.ingestion`. The existing
-`python store_index.py` command remains available as a compatibility entry point.
-Both populate the `clinician` index from `backend/data` using the same embedding,
-chunking, and Pinecone settings. `scripts/scaffold.py` creates missing files using
-the current structure; the existing `python template.py` command delegates to it.
+Run ingestion manually from `backend` with `python -m src.ai.ingestion` to populate
+the `clinician` index from `backend/data`. This command creates an index and uploads
+documents; it is never part of startup or routine checks. The redundant
+`store_index.py` wrapper and the obsolete `template.py`/`scripts/scaffold.py`
+placeholder generators have been removed.
 
 | Table | Data |
 | --- | --- |
@@ -388,12 +392,18 @@ multiple workers. Trust proxy headers only after configuring the actual proxy.
 
 ## Tests
 
-For agents and routine verification under `AGENTS.md`, run only the database-free
-unit and mocked AI suites:
+For agents and routine verification under `AGENTS.md`, the default test selection
+runs only database-free unit tests and mocked AI tests. Unit tests reject real
+PostgreSQL connections. Install `requirements-dev.txt`, then run:
 
 ```powershell
-python -m pytest tests/unit tests/ai -q
+python -m ruff check .
+python -m ruff format --check .
+python -m pytest -q
 ```
+
+Use `python -m ruff check . --fix` and `python -m ruff format .` to apply code-style
+fixes. Ruff excludes existing migrations and exploratory notebooks.
 
 The PostgreSQL integration suite below changes database objects and data; it must
 be run manually by the user. It has been updated for JWTs but is not part of the
@@ -407,7 +417,7 @@ TEST_DATABASE_URL=postgresql+psycopg://USER:PASSWORD@localhost:5432/clinician_te
 ```
 
 ```powershell
-python -m pytest -q
+python -m pytest tests/api -q
 ```
 
 Tests run the real migrations in a randomly named, isolated schema and remove
@@ -417,5 +427,5 @@ email-token hash storage, JWT expiry/signatures, token purpose/reuse, mail rollb
 concurrent use of a reset token. Chat and AI regression tests preserve the route
 contract, retrieval configuration, prompt wiring, document processing, and lazy
 provider initialization. AI provider calls are mocked and do not make network
-requests. Without `TEST_DATABASE_URL`, the PostgreSQL API tests skip; the AI tests
-still run.
+requests. Without `TEST_DATABASE_URL`, explicitly selected PostgreSQL API tests
+skip. Routine `pytest` runs never select this suite.

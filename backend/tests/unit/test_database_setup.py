@@ -1,4 +1,5 @@
 """The setup command must use IAM too, without running cloud database writes."""
+
 import importlib.util
 from pathlib import Path
 from unittest.mock import Mock

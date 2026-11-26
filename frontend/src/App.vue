@@ -4,7 +4,10 @@
     <Navbar v-if="showNavigation" />
     <div class="route-region" :class="{ 'with-navigation': showNavigation }">
       <div :inert="auth.isRouteLoading" :aria-busy="auth.isRouteLoading">
-        <main v-if="auth.appStatus === 'ready' && (!route.meta.requiresAuth || auth.isAuthenticated)" id="main-content">
+        <main
+          v-if="auth.appStatus === 'ready' && (!route.meta.requiresAuth || auth.isAuthenticated)"
+          id="main-content"
+        >
           <RouterView :key="route.path" />
         </main>
         <section v-else class="app-startup" aria-live="polite">
@@ -36,17 +39,63 @@ const auth = useAuthStore()
 const showNavigation = computed(() => auth.isAuthenticated && route.meta.requiresAuth)
 
 async function retry() {
-  const { path, query, hash } = router.resolve(window.location.pathname + window.location.search + window.location.hash)
+  const { path, query, hash } = router.resolve(
+    window.location.pathname + window.location.search + window.location.hash,
+  )
   await router.replace({ path, query, hash, force: true })
 }
 </script>
 
 <style scoped>
-.route-region { position: relative; min-height: var(--route-height); --route-height: 100dvh; }
-.route-region.with-navigation { --route-height: calc(100dvh - var(--navbar-height)); }
-.app-startup { min-height: var(--route-height); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 32px; text-align: center; }
-.route-loader { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 24px; background: #fafbf8e8; color: var(--ink); text-align: center; cursor: progress; }
-.route-loader-spinner { width: 42px; height: 42px; border: 3px solid var(--border); border-top-color: var(--green); border-radius: 50%; animation: route-loader-spin .75s linear infinite; }
-@keyframes route-loader-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .route-loader-spinner { animation: none; } }
+.route-region {
+  position: relative;
+  min-height: var(--route-height);
+  --route-height: 100dvh;
+}
+.route-region.with-navigation {
+  --route-height: calc(100dvh - var(--navbar-height));
+}
+.app-startup {
+  min-height: var(--route-height);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 32px;
+  text-align: center;
+}
+.route-loader {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  background: #fafbf8e8;
+  color: var(--ink);
+  text-align: center;
+  cursor: progress;
+}
+.route-loader-spinner {
+  width: 42px;
+  height: 42px;
+  border: 3px solid var(--border);
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: route-loader-spin 0.75s linear infinite;
+}
+@keyframes route-loader-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .route-loader-spinner {
+    animation: none;
+  }
+}
 </style>

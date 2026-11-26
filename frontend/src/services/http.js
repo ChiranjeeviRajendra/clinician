@@ -11,7 +11,10 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiRequest(path, { method = 'GET', body, token, timeout = 15000, signal, routeScoped = true } = {}) {
+export async function apiRequest(
+  path,
+  { method = 'GET', body, token, timeout = 15000, signal, routeScoped = true } = {},
+) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeout)
   const signals = [signal, routeScoped ? routeRequestSignal() : null].filter(Boolean)
@@ -23,27 +26,31 @@ export async function apiRequest(path, { method = 'GET', body, token, timeout = 
   const headers = { Accept: 'application/json' }
   if (body !== undefined) headers['Content-Type'] = 'application/json'
   if (token) headers.Authorization = `Bearer ${token}`
+  const options = { method, headers, signal: controller.signal, cache: 'no-store' }
 
   try {
     controller.signal.throwIfAborted()
-    const response = await fetch(`${API_BASE}${path}`, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: controller.signal,
-      cache: 'no-store',
-    })
+    if (body !== undefined) options.body = JSON.stringify(body)
+    const response = await fetch(`${API_BASE}${path}`, options)
     controller.signal.throwIfAborted()
     if (response.status === 204) return null
     let data
     try {
       data = await response.json()
     } catch {
-      throw new ApiError('The service returned an unexpected response. Please try again.', response.status, 'invalid_response')
+      throw new ApiError(
+        'The service returned an unexpected response. Please try again.',
+        response.status,
+        'invalid_response',
+      )
     }
     controller.signal.throwIfAborted()
     if (!response.ok) {
-      throw new ApiError(data.error?.message || 'Something went wrong. Please try again.', response.status, data.error?.code)
+      throw new ApiError(
+        data?.error?.message || 'Something went wrong. Please try again.',
+        response.status,
+        data?.error?.code,
+      )
     }
     return data
   } catch (error) {

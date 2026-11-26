@@ -11,7 +11,8 @@ import { ApiError } from '../src/services/http.js'
 import { getReturnTo } from '../src/router/session.js'
 import { navigateTo } from '../src/router/navigation.js'
 import { sendMessage } from '../src/services/chat.js'
-import { LOGIN_MESSAGES, RETURN_TO_STORAGE_KEY, SESSION_STORAGE_KEY, useAuthStore } from '../src/stores/auth.js'
+import { LOGIN_MESSAGES, useAuthStore } from '../src/stores/auth.js'
+import { RETURN_TO_STORAGE_KEY, SESSION_STORAGE_KEY } from '../src/services/session-storage.js'
 
 const user = { email: 'doctor@example.com', email_verified: true }
 const info = { status: 'valid', expires_at: new Date(Date.now() + 60000).toISOString() }
@@ -60,9 +61,14 @@ afterEach(async () => {
 })
 
 function savedSession() {
-  sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
-    user, sessionToken: 'saved-token', expiresAt: info.expires_at,
-  }))
+  sessionStorage.setItem(
+    SESSION_STORAGE_KEY,
+    JSON.stringify({
+      user,
+      sessionToken: 'saved-token',
+      expiresAt: info.expires_at,
+    }),
+  )
 }
 
 test('authenticate runs before userInfo, and both finish before the page loads', async () => {
@@ -72,13 +78,20 @@ test('authenticate runs before userInfo, and both finish before the page loads',
   let finishInfo
   mock.method(authApi, 'authenticate', () => {
     order.push('authenticate')
-    return new Promise((resolve) => { finishAuthentication = resolve })
+    return new Promise((resolve) => {
+      finishAuthentication = resolve
+    })
   })
   mock.method(userApi, 'info', () => {
     order.push('userInfo')
-    return new Promise((resolve) => { finishInfo = resolve })
+    return new Promise((resolve) => {
+      finishInfo = resolve
+    })
   })
-  const component = mock.fn(async () => { order.push('page'); return { render: () => null } })
+  const component = mock.fn(async () => {
+    order.push('page')
+    return { render: () => null }
+  })
   router.addRoute({ path: '/ordered', component, meta: { requiresAuth: true } })
   const navigation = router.push('/ordered')
   await new Promise((resolve) => setImmediate(resolve))
@@ -95,7 +108,10 @@ test('authenticate runs before userInfo, and both finish before the page loads',
 
 test('userInfo is cached across routes and fetched again for a new session and on reload', async () => {
   savedSession()
-  const check = mock.method(authApi, 'authenticate', async () => ({ status: 'valid', expires_at: info.expires_at }))
+  const check = mock.method(authApi, 'authenticate', async () => ({
+    status: 'valid',
+    expires_at: info.expires_at,
+  }))
   const accountInfo = mock.method(userApi, 'info', async () => userInfo)
   await router.push('/home')
   await router.push('/chat')
@@ -105,7 +121,11 @@ test('userInfo is cached across routes and fetched again for a new session and o
   await auth.signOut()
   assert.equal(auth.userInfo, null)
   await router.push('/login')
-  mock.method(authApi, 'login', async () => ({ user, session_token: 'new-jwt', expires_at: info.expires_at }))
+  mock.method(authApi, 'login', async () => ({
+    user,
+    session_token: 'new-jwt',
+    expires_at: info.expires_at,
+  }))
   await auth.signIn({})
   await router.push('/profile')
   assert.equal(accountInfo.mock.callCount(), 2)
@@ -118,7 +138,9 @@ test('userInfo is cached across routes and fetched again for a new session and o
 test('session startup loads the full name for every page and caches it across routes', async () => {
   savedSession()
   mock.method(authApi, 'authenticate', async () => info)
-  const lookup = mock.method(profileApi, 'getUserProfile', async () => ({ profile: { full_name: 'Asha Patel' } }))
+  const lookup = mock.method(profileApi, 'getUserProfile', async () => ({
+    profile: { full_name: 'Asha Patel' },
+  }))
   await router.push('/home')
   const auth = useAuthStore()
   assert.equal(auth.displayName, 'Asha Patel')
@@ -131,7 +153,9 @@ test('session startup loads the full name for every page and caches it across ro
 test('a temporary profile failure leaves the rest of the app available with the email fallback', async () => {
   savedSession()
   mock.method(authApi, 'authenticate', async () => info)
-  mock.method(profileApi, 'getUserProfile', async () => { throw new ApiError('Unavailable', 503) })
+  mock.method(profileApi, 'getUserProfile', async () => {
+    throw new ApiError('Unavailable', 503)
+  })
   await router.push('/home')
   const auth = useAuthStore()
   assert.equal(auth.appStatus, 'ready')
@@ -150,7 +174,11 @@ test('signing in as another account loads its userInfo and replaces cached accou
   await router.push('/login')
   const otherUser = { email: 'another@example.com', email_verified: true }
   const otherInfo = { ...otherUser, expires_at: info.expires_at }
-  mock.method(authApi, 'login', async () => ({ user: otherUser, session_token: 'other-token', expires_at: info.expires_at }))
+  mock.method(authApi, 'login', async () => ({
+    user: otherUser,
+    session_token: 'other-token',
+    expires_at: info.expires_at,
+  }))
   const lookup = mock.method(userApi, 'info', async () => otherInfo)
   await auth.signIn({})
   assert.equal(auth.userInfo, null)
@@ -172,8 +200,13 @@ test('userInfo expiry can shorten the session lifetime returned by authenticate'
 
 test('a userInfo startup failure can retry without caching the failure or clearing the JWT', async () => {
   savedSession()
-  mock.method(authApi, 'authenticate', async () => ({ status: 'valid', expires_at: info.expires_at }))
-  const metadata = mock.method(userApi, 'info', async () => { throw new ApiError('Unavailable', 503) })
+  mock.method(authApi, 'authenticate', async () => ({
+    status: 'valid',
+    expires_at: info.expires_at,
+  }))
+  const metadata = mock.method(userApi, 'info', async () => {
+    throw new ApiError('Unavailable', 503)
+  })
   await router.push('/home')
   assert.equal(useAuthStore().appStatus, 'error')
   assert.equal(useAuthStore().sessionToken, 'saved-token')
@@ -188,7 +221,14 @@ test('a userInfo startup failure can retry without caching the failure or cleari
 test('reload waits for authenticate and userInfo before loading protected page components', async () => {
   savedSession()
   let resolveInfo
-  const check = mock.method(authApi, 'authenticate', () => new Promise((resolve) => { resolveInfo = resolve }))
+  const check = mock.method(
+    authApi,
+    'authenticate',
+    () =>
+      new Promise((resolve) => {
+        resolveInfo = resolve
+      }),
+  )
   const loadPage = mock.fn(async () => ({ render: () => null }))
   router.addRoute({ path: '/protected', component: loadPage, meta: { requiresAuth: true } })
   const navigation = router.push('/protected')
@@ -207,7 +247,9 @@ test('reload waits for authenticate and userInfo before loading protected page c
 
 test('an invalid token redirects straight to login with an access message and return path', async () => {
   savedSession()
-  const check = mock.method(authApi, 'authenticate', async () => { throw new ApiError('Unauthorized', 401) })
+  const check = mock.method(authApi, 'authenticate', async () => {
+    throw new ApiError('Unauthorized', 401)
+  })
   await router.push('/chat?view=recent#latest')
   const auth = useAuthStore()
   assert.equal(auth.appStatus, 'ready')
@@ -217,12 +259,17 @@ test('an invalid token redirects straight to login with an access message and re
   assert.equal(router.currentRoute.value.name, 'login')
   assert.equal(router.currentRoute.value.query.reason, 'denied')
   assert.equal(router.currentRoute.value.query.redirect, '/chat?view=recent#latest')
-  assert.equal(LOGIN_MESSAGES[auth.loginReason], 'You do not have access to the app. Please login to continue.')
+  assert.equal(
+    LOGIN_MESSAGES[auth.loginReason],
+    'You do not have access to the app. Please login to continue.',
+  )
   assert.equal(check.mock.callCount(), 1)
 })
 
 test('a missing token on the first protected-page load redirects silently to login', async () => {
-  const check = mock.method(authApi, 'authenticate', async () => { throw new ApiError('Unauthorized', 401) })
+  const check = mock.method(authApi, 'authenticate', async () => {
+    throw new ApiError('Unauthorized', 401)
+  })
   await router.push('/home')
   assert.equal(check.mock.callCount(), 0)
   assert.equal(useAuthStore().isRouteLoading, false)
@@ -260,20 +307,32 @@ test('a later protected navigation without credentials still shows the access me
 })
 
 test('an expired saved session cannot restore access', async () => {
-  sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
-    user, sessionToken: 'expired-token', expiresAt: '2020-01-01T00:00:00Z',
-  }))
-  const check = mock.method(authApi, 'authenticate', async () => { throw new ApiError('Unauthorized', 401) })
+  sessionStorage.setItem(
+    SESSION_STORAGE_KEY,
+    JSON.stringify({
+      user,
+      sessionToken: 'expired-token',
+      expiresAt: '2020-01-01T00:00:00Z',
+    }),
+  )
+  const check = mock.method(authApi, 'authenticate', async () => {
+    throw new ApiError('Unauthorized', 401)
+  })
   await router.push('/home')
   assert.equal(router.currentRoute.value.name, 'login')
   assert.equal(router.currentRoute.value.query.reason, 'expired')
-  assert.equal(LOGIN_MESSAGES[useAuthStore().loginReason], 'Your login session expired. Please login to continue.')
+  assert.equal(
+    LOGIN_MESSAGES[useAuthStore().loginReason],
+    'Your login session expired. Please login to continue.',
+  )
   assert.equal(check.mock.callCount(), 0)
   assert.equal(sessionStorage.getItem(SESSION_STORAGE_KEY), null)
 })
 
 test('public account pages remain usable without a session', async () => {
-  const check = mock.method(authApi, 'authenticate', async () => { throw new ApiError('Unauthorized', 401) })
+  const check = mock.method(authApi, 'authenticate', async () => {
+    throw new ApiError('Unauthorized', 401)
+  })
   for (const path of ['/login', '/verify-email', '/forgot-password', '/reset-password']) {
     await router.push(path)
     assert.equal(router.currentRoute.value.path, path)
@@ -285,7 +344,9 @@ test('public account pages remain usable without a session', async () => {
 for (const code of ['unauthorized', 'session_expired']) {
   test(`opening login silently clears a saved token rejected as ${code}`, async () => {
     savedSession()
-    const check = mock.method(authApi, 'authenticate', async () => { throw new ApiError('Unauthorized', 401, code) })
+    const check = mock.method(authApi, 'authenticate', async () => {
+      throw new ApiError('Unauthorized', 401, code)
+    })
     await router.push('/login?reason=expired&expired=1&redirect=%2Fchat&mode=register#form')
     const auth = useAuthStore()
     assert.equal(auth.appStatus, 'ready')
@@ -329,7 +390,12 @@ for (const [kind, stored] of [
 
 test('opening login without a stored token also clears an in-memory session silently', async () => {
   const auth = useAuthStore()
-  auth.$patch({ user, sessionToken: 'memory-only', expiresAt: info.expires_at, loginReason: 'denied' })
+  auth.$patch({
+    user,
+    sessionToken: 'memory-only',
+    expiresAt: info.expires_at,
+    loginReason: 'denied',
+  })
   const check = mock.method(authApi, 'authenticate', async () => info)
   await router.push('/login')
   assert.equal(auth.sessionToken, null)
@@ -342,9 +408,14 @@ test('opening login without a stored token also clears an in-memory session sile
 
 for (const serverValid of [false, true]) {
   test(`opening login checks a locally expired token and preserves its lifetime limit (server valid: ${serverValid})`, async () => {
-    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
-      user, sessionToken: 'expired-token', expiresAt: '2020-01-01T00:00:00Z',
-    }))
+    sessionStorage.setItem(
+      SESSION_STORAGE_KEY,
+      JSON.stringify({
+        user,
+        sessionToken: 'expired-token',
+        expiresAt: '2020-01-01T00:00:00Z',
+      }),
+    )
     const check = mock.method(authApi, 'authenticate', async () => {
       if (!serverValid) throw new ApiError('Expired', 401, 'session_expired')
       return info
@@ -368,7 +439,9 @@ for (const failure of [
     savedSession()
     sessionStorage.setItem(RETURN_TO_STORAGE_KEY, '/profile')
     const stored = sessionStorage.getItem(SESSION_STORAGE_KEY)
-    const check = mock.method(authApi, 'authenticate', async () => { throw failure })
+    const check = mock.method(authApi, 'authenticate', async () => {
+      throw failure
+    })
     const location = '/login?reason=expired&redirect=%2Fchat%3Fview%3Drecent%23latest'
     await router.push(location)
     const auth = useAuthStore()
@@ -391,7 +464,9 @@ for (const failure of [
 test('opening login preserves credentials when userInfo fails and retries successfully', async () => {
   savedSession()
   mock.method(authApi, 'authenticate', async () => info)
-  const metadata = mock.method(userApi, 'info', async () => { throw new ApiError('Unavailable', 503) })
+  const metadata = mock.method(userApi, 'info', async () => {
+    throw new ApiError('Unavailable', 503)
+  })
   await router.push('/login')
   assert.equal(useAuthStore().appStatus, 'error')
   assert.equal(useAuthStore().sessionToken, 'saved-token')
@@ -409,7 +484,9 @@ test('a canceled initial login check cannot restore cleared credentials or redir
   let signal
   mock.method(authApi, 'authenticate', (_token, options) => {
     signal = options.signal
-    return new Promise((resolve) => { resolveCheck = resolve })
+    return new Promise((resolve) => {
+      resolveCheck = resolve
+    })
   })
   const navigation = router.push('/login?redirect=%2Fprofile')
   await new Promise((resolve) => setImmediate(resolve))
@@ -427,7 +504,9 @@ test('a canceled initial login check cannot restore cleared credentials or redir
 
 test('an invalid saved token on a public page redirects to login without blocking recovery links afterward', async () => {
   savedSession()
-  const check = mock.method(authApi, 'authenticate', async () => { throw new ApiError('Unauthorized', 401) })
+  const check = mock.method(authApi, 'authenticate', async () => {
+    throw new ApiError('Unauthorized', 401)
+  })
   await router.push('/forgot-password')
   assert.equal(router.currentRoute.value.name, 'login')
   assert.equal(router.currentRoute.value.query.reason, 'denied')
@@ -439,7 +518,9 @@ test('an invalid saved token on a public page redirects to login without blockin
 for (const status of [0, 503]) {
   test(`a ${status || 'network'} failure blocks content and supports retry without logging out`, async () => {
     savedSession()
-    const check = mock.method(authApi, 'authenticate', async () => { throw new ApiError('Service unavailable', status) })
+    const check = mock.method(authApi, 'authenticate', async () => {
+      throw new ApiError('Service unavailable', status)
+    })
     await router.push('/home')
     const auth = useAuthStore()
     assert.equal(auth.appStatus, 'error')
@@ -456,7 +537,14 @@ for (const status of [0, 503]) {
 test('simultaneous initialization requests share one check', async () => {
   savedSession()
   let resolveInfo
-  const check = mock.method(authApi, 'authenticate', () => new Promise((resolve) => { resolveInfo = resolve }))
+  const check = mock.method(
+    authApi,
+    'authenticate',
+    () =>
+      new Promise((resolve) => {
+        resolveInfo = resolve
+      }),
+  )
   const auth = useAuthStore()
   const first = auth.initializeApp()
   const second = auth.initializeApp()
@@ -471,7 +559,8 @@ test('simultaneous initialization requests share one check', async () => {
 test('revalidation never extends the saved client expiration', async () => {
   savedSession()
   mock.method(authApi, 'authenticate', async () => ({
-    ...info, expires_at: new Date(Date.now() + 7 * 86400000).toISOString(),
+    ...info,
+    expires_at: new Date(Date.now() + 7 * 86400000).toISOString(),
   }))
   await useAuthStore().initializeApp()
   assert.equal(useAuthStore().expiresAt, info.expires_at)
@@ -488,7 +577,13 @@ test('a valid saved session on login redirects to home after validation', async 
 test('every navigation with a saved token rechecks authenticate and loads userInfo once, including query and fragment changes', async () => {
   savedSession()
   const check = mock.method(authApi, 'authenticate', async () => info)
-  const paths = ['/home', '/chat', '/profile', '/profile?tab=details', '/profile?tab=details#settings']
+  const paths = [
+    '/home',
+    '/chat',
+    '/profile',
+    '/profile?tab=details',
+    '/profile?tab=details#settings',
+  ]
   for (const [index, path] of paths.entries()) {
     await router.push(path)
     assert.equal(router.currentRoute.value.fullPath, path)
@@ -503,7 +598,12 @@ test('navigation waits for revalidation while keeping the current page mounted',
   const check = mock.method(authApi, 'authenticate', async () => info)
   await router.push('/home')
   let resolveInfo
-  check.mock.mockImplementation(() => new Promise((resolve) => { resolveInfo = resolve }))
+  check.mock.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveInfo = resolve
+      }),
+  )
   const navigation = router.push('/chat')
   await new Promise((resolve) => setImmediate(resolve))
   assert.equal(check.mock.callCount(), 2)
@@ -522,14 +622,22 @@ for (const status of [0, 401, 503]) {
     const check = mock.method(authApi, 'authenticate', async () => info)
     await router.push('/home')
     let rejectInfo
-    check.mock.mockImplementation(() => new Promise((_resolve, reject) => { rejectInfo = reject }))
+    check.mock.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectInfo = reject
+        }),
+    )
     const navigation = router.push('/chat')
     await new Promise((resolve) => setImmediate(resolve))
     assert.equal(useAuthStore().isRouteLoading, true)
     rejectInfo(new ApiError('Request failed', status))
     await navigation
     assert.equal(useAuthStore().isRouteLoading, false)
-    assert.equal(status === 401 ? router.currentRoute.value.name : useAuthStore().appStatus, status === 401 ? 'login' : 'error')
+    assert.equal(
+      status === 401 ? router.currentRoute.value.name : useAuthStore().appStatus,
+      status === 401 ? 'login' : 'error',
+    )
   })
 }
 
@@ -538,7 +646,9 @@ for (const status of [0, 503]) {
     savedSession()
     const check = mock.method(authApi, 'authenticate', async () => info)
     await router.push('/home?view=recent#top')
-    check.mock.mockImplementation(async () => { throw new ApiError('Service unavailable', status) })
+    check.mock.mockImplementation(async () => {
+      throw new ApiError('Service unavailable', status)
+    })
     await router.push('/chat')
     assert.equal(useAuthStore().appStatus, 'error')
     assert.equal(router.currentRoute.value.fullPath, '/home?view=recent#top')
@@ -557,11 +667,16 @@ for (const code of ['unauthorized', 'session_expired']) {
     savedSession()
     const check = mock.method(authApi, 'authenticate', async () => info)
     await router.push('/home')
-    check.mock.mockImplementation(async () => { throw new ApiError('Unauthorized', 401, code) })
+    check.mock.mockImplementation(async () => {
+      throw new ApiError('Unauthorized', 401, code)
+    })
     await router.push('/chat?view=recent#latest')
     assert.equal(check.mock.callCount(), 2)
     assert.equal(router.currentRoute.value.name, 'login')
-    assert.equal(router.currentRoute.value.query.reason, code === 'session_expired' ? 'expired' : 'denied')
+    assert.equal(
+      router.currentRoute.value.query.reason,
+      code === 'session_expired' ? 'expired' : 'denied',
+    )
     assert.equal(router.currentRoute.value.query.redirect, '/chat?view=recent#latest')
     assert.equal(sessionStorage.getItem(SESSION_STORAGE_KEY), null)
   })
@@ -571,7 +686,9 @@ test('an invalid session on a later public navigation also routes to login', asy
   savedSession()
   const check = mock.method(authApi, 'authenticate', async () => info)
   await router.push('/home')
-  check.mock.mockImplementation(async () => { throw new ApiError('Unauthorized', 401) })
+  check.mock.mockImplementation(async () => {
+    throw new ApiError('Unauthorized', 401)
+  })
   await router.push('/forgot-password')
   assert.equal(check.mock.callCount(), 2)
   assert.equal(router.currentRoute.value.name, 'login')
@@ -583,7 +700,12 @@ test('a delayed revalidation cannot restore a signed-out session', async () => {
   const check = mock.method(authApi, 'authenticate', async () => info)
   await router.push('/home')
   let resolveInfo
-  check.mock.mockImplementation(() => new Promise((resolve) => { resolveInfo = resolve }))
+  check.mock.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveInfo = resolve
+      }),
+  )
   const navigation = router.push('/chat')
   await new Promise((resolve) => setImmediate(resolve))
   const auth = useAuthStore()
@@ -601,10 +723,19 @@ test('selecting another navbar item aborts the old request and loads only the ne
   mock.method(globalThis, 'fetch', async () => Response.json(info))
   await router.push('/home')
   const requests = []
-  mock.method(globalThis, 'fetch', (_url, options) => new Promise((resolve, reject) => {
-    requests.push({ signal: options.signal, resolve })
-    options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
-  }))
+  mock.method(
+    globalThis,
+    'fetch',
+    (_url, options) =>
+      new Promise((resolve, reject) => {
+        requests.push({ signal: options.signal, resolve })
+        options.signal.addEventListener(
+          'abort',
+          () => reject(new DOMException('Aborted', 'AbortError')),
+          { once: true },
+        )
+      }),
+  )
   const auth = useAuthStore()
   const first = navigateTo(router, auth, '/chat')
   await new Promise((resolve) => setImmediate(resolve))
@@ -640,11 +771,21 @@ test('changing navbar selection also cancels the previous page API request', asy
   mock.method(authApi, 'authenticate', async () => info)
   await router.push('/chat')
   let signal
-  mock.method(globalThis, 'fetch', (_url, options) => new Promise((_resolve, reject) => {
-    signal = options.signal
-    signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
-  }))
-  const canceled = assert.rejects(sendMessage('A question', 'saved-token'), (error) => error.code === 'request_cancelled')
+  mock.method(
+    globalThis,
+    'fetch',
+    (_url, options) =>
+      new Promise((_resolve, reject) => {
+        signal = options.signal
+        signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), {
+          once: true,
+        })
+      }),
+  )
+  const canceled = assert.rejects(
+    sendMessage('A question', 'saved-token'),
+    (error) => error.code === 'request_cancelled',
+  )
   await navigateTo(router, useAuthStore(), '/profile')
   await canceled
   assert.equal(signal.aborted, true)
@@ -659,7 +800,9 @@ test('repeating a pending navbar selection keeps its original request running', 
   let signal
   check.mock.mockImplementation((_token, options) => {
     signal = options.signal
-    return new Promise((resolve) => { resolveInfo = resolve })
+    return new Promise((resolve) => {
+      resolveInfo = resolve
+    })
   })
   const auth = useAuthStore()
   const first = navigateTo(router, auth, '/profile')
@@ -678,9 +821,12 @@ test('rapid switching back to an earlier target does not let its old request cle
   const check = mock.method(authApi, 'authenticate', async () => info)
   await router.push('/home')
   const requests = []
-  check.mock.mockImplementation((_token, { signal }) => new Promise((resolve) => {
-    requests.push({ signal, resolve })
-  }))
+  check.mock.mockImplementation(
+    (_token, { signal }) =>
+      new Promise((resolve) => {
+        requests.push({ signal, resolve })
+      }),
+  )
   const auth = useAuthStore()
   const first = navigateTo(router, auth, '/chat')
   await new Promise((resolve) => setImmediate(resolve))
@@ -712,7 +858,9 @@ test('selecting the current page while another page loads cancels that navigatio
   let oldSignal
   check.mock.mockImplementation((_token, options) => {
     oldSignal = options.signal
-    return new Promise((_resolve, reject) => { rejectOld = reject })
+    return new Promise((_resolve, reject) => {
+      rejectOld = reject
+    })
   })
   const auth = useAuthStore()
   const first = navigateTo(router, auth, '/profile')
@@ -737,10 +885,13 @@ for (const staleResult of ['success', 'unauthorized']) {
     await router.push('/home')
     let resolveOld
     let rejectOld
-    check.mock.mockImplementation(() => new Promise((resolve, reject) => {
-      resolveOld = resolve
-      rejectOld = reject
-    }))
+    check.mock.mockImplementation(
+      () =>
+        new Promise((resolve, reject) => {
+          resolveOld = resolve
+          rejectOld = reject
+        }),
+    )
     const auth = useAuthStore()
     const first = navigateTo(router, auth, '/chat')
     await new Promise((resolve) => setImmediate(resolve))
@@ -759,7 +910,9 @@ for (const staleResult of ['success', 'unauthorized']) {
 
 test('a server-expired token uses the expired message even when client expiry is later', async () => {
   savedSession()
-  mock.method(authApi, 'authenticate', async () => { throw new ApiError('Expired', 401, 'session_expired') })
+  mock.method(authApi, 'authenticate', async () => {
+    throw new ApiError('Expired', 401, 'session_expired')
+  })
   await router.push('/chat')
   assert.equal(router.currentRoute.value.name, 'login')
   assert.equal(router.currentRoute.value.query.reason, 'expired')
@@ -792,7 +945,11 @@ test('the last protected page survives login reload and is used after successful
   const auth = useAuthStore()
   assert.equal(auth.returnTo, '/chat?view=recent#latest')
   // The login endpoint establishes a new session before userInfo is called.
-  mock.method(authApi, 'login', async () => ({ user, expires_at: info.expires_at, session_token: 'new-token' }))
+  mock.method(authApi, 'login', async () => ({
+    user,
+    expires_at: info.expires_at,
+    session_token: 'new-token',
+  }))
   mock.method(authApi, 'authenticate', async () => info)
   await auth.signIn({})
   await router.replace(getReturnTo(router, undefined, auth.returnTo))
@@ -818,7 +975,13 @@ test('a valid session opening login follows the URL redirect with its query and 
   assert.equal(userApi.info.mock.callCount(), 1)
 })
 
-for (const redirect of ['https://example.com', '//example.com', '/\\example.com', '/login', '/missing']) {
+for (const redirect of [
+  'https://example.com',
+  '//example.com',
+  '/\\example.com',
+  '/login',
+  '/missing',
+]) {
   test(`a valid session opening login with redirect ${redirect} falls back to home`, async () => {
     savedSession()
     sessionStorage.setItem(RETURN_TO_STORAGE_KEY, '/profile')
@@ -841,14 +1004,24 @@ test('routing to login within the app still shows a rejected session message', a
   savedSession()
   const check = mock.method(authApi, 'authenticate', async () => info)
   await router.push('/home')
-  check.mock.mockImplementation(async () => { throw new ApiError('Unauthorized', 401) })
+  check.mock.mockImplementation(async () => {
+    throw new ApiError('Unauthorized', 401)
+  })
   await router.push('/login')
   assert.equal(router.currentRoute.value.query.reason, 'denied')
   assert.equal(useAuthStore().loginReason, 'denied')
 })
 
 test('only known protected pages can be used as return destinations', () => {
-  for (const invalid of ['https://example.com', '//example.com', '/\\example.com', '/login', '/verify-email', '/missing', ['/chat']]) {
+  for (const invalid of [
+    'https://example.com',
+    '//example.com',
+    '/\\example.com',
+    '/login',
+    '/verify-email',
+    '/missing',
+    ['/chat'],
+  ]) {
     assert.equal(getReturnTo(router, invalid), '/home')
   }
   assert.equal(getReturnTo(router, '/chat?view=recent#latest'), '/chat?view=recent#latest')

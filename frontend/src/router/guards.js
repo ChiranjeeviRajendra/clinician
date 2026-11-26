@@ -17,7 +17,9 @@ export function installAuthGuards(router) {
     cancelRouteRequests()
     pendingLocation = to
     auth.pendingRoute = to.fullPath
-    const checkingSavedSession = Boolean(auth.sessionToken || (auth.appStatus !== 'ready' && auth.loginReason))
+    const checkingSavedSession = Boolean(
+      auth.sessionToken || (auth.appStatus !== 'ready' && auth.loginReason),
+    )
     if (to.meta.requiresAuth) auth.rememberPage(to.fullPath)
     await auth.initializeApp({ force: true, signal, initialLogin })
     if (signal.aborted || currentNavigation !== navigation) return false
@@ -34,13 +36,15 @@ export function installAuthGuards(router) {
       return
     }
     if (to.meta.requiresAuth && !auth.hasSession()) {
-      const reason = from === START_LOCATION && !checkingSavedSession ? '' : auth.loginReason || 'denied'
+      const reason =
+        from === START_LOCATION && !checkingSavedSession ? '' : auth.loginReason || 'denied'
       return loginLocation(auth, to.fullPath, reason)
     }
     if (checkingSavedSession && auth.loginReason && to.name !== 'login') {
       return { name: 'login', query: { reason: auth.loginReason } }
     }
-    if (to.meta.guestOnly && auth.hasSession()) return getReturnTo(router, to.query.redirect, auth.returnTo)
+    if (to.meta.guestOnly && auth.hasSession())
+      return getReturnTo(router, to.query.redirect, auth.returnTo)
     if (to.name === 'login' && auth.loginReason && to.query.reason !== auth.loginReason) {
       return { name: 'login', query: { ...to.query, reason: auth.loginReason } }
     }
@@ -57,10 +61,13 @@ export function installAuthGuards(router) {
     clearTimeout(expirationTimer)
     if (!to.meta.requiresAuth || !auth.hasSession()) return
     auth.rememberPage(to.fullPath)
-    expirationTimer = setTimeout(() => {
-      if (!auth.hasSession() && router.currentRoute.value.meta.requiresAuth) {
-        router.replace(loginLocation(auth, router.currentRoute.value.fullPath, 'expired'))
-      }
-    }, Math.max(0, Date.parse(auth.expiresAt) - Date.now()))
+    expirationTimer = setTimeout(
+      () => {
+        if (!auth.hasSession() && router.currentRoute.value.meta.requiresAuth) {
+          router.replace(loginLocation(auth, router.currentRoute.value.fullPath, 'expired'))
+        }
+      },
+      Math.max(0, Date.parse(auth.expiresAt) - Date.now()),
+    )
   })
 }

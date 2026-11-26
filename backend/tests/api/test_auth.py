@@ -1,14 +1,14 @@
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-import re
-import jwt
 
+import jwt
 import pytest
 from sqlalchemy import select
 from werkzeug.security import check_password_hash
 
-from src.api.auth.service import hash_token
 from src.api.auth.jwt_tokens import validate_access_token
+from src.api.auth.service import hash_token
 from src.api.extensions import db
 from src.api.models import AuthToken, User
 from src.api.models.auth import utcnow
@@ -60,7 +60,10 @@ def test_register_verify_login_me_logout(client, mailbox, app):
     response = login(client)
     headers = bearer(response)
     with app.app_context():
-        assert validate_access_token(response.json["session_token"])["sub"] == response.json["user"]["id"]
+        assert (
+            validate_access_token(response.json["session_token"])["sub"]
+            == response.json["user"]["id"]
+        )
     assert client.get("/auth/me", headers=headers).json["user"]["email_verified"] is True
     assert client.get("/userInfo", headers=headers).status_code == 200
     assert client.post("/auth/logout", headers=headers).status_code == 204
@@ -83,12 +86,20 @@ def test_password_reset_updates_password_without_revoking_jwts_and_rejects_reuse
     second = bearer(login(client))
     assert client.post("/auth/forgot-password", json={"email": EMAIL}).status_code == 202
     token = token_from_email(mailbox)
-    assert client.post("/auth/reset-password", json={"token": token, "password": NEW_PASSWORD}).status_code == 200
+    assert (
+        client.post(
+            "/auth/reset-password", json={"token": token, "password": NEW_PASSWORD}
+        ).status_code
+        == 200
+    )
     assert client.get("/auth/me", headers=first).status_code == 200
     assert client.get("/auth/me", headers=second).status_code == 200
     assert login(client).status_code == 401
     assert login(client, NEW_PASSWORD).status_code == 200
-    assert client.post("/auth/reset-password", json={"token": token, "password": PASSWORD}).status_code == 400
+    assert (
+        client.post("/auth/reset-password", json={"token": token, "password": PASSWORD}).status_code
+        == 400
+    )
 
 
 def test_forgot_password_does_not_disclose_accounts(client, mailbox):
@@ -105,13 +116,27 @@ def test_new_reset_request_invalidates_previous_token(client, mailbox):
     old = token_from_email(mailbox)
     client.post("/auth/forgot-password", json={"email": EMAIL})
     new = token_from_email(mailbox)
-    assert client.post("/auth/reset-password", json={"token": old, "password": NEW_PASSWORD}).status_code == 400
-    assert client.post("/auth/reset-password", json={"token": new, "password": NEW_PASSWORD}).status_code == 200
+    assert (
+        client.post(
+            "/auth/reset-password", json={"token": old, "password": NEW_PASSWORD}
+        ).status_code
+        == 400
+    )
+    assert (
+        client.post(
+            "/auth/reset-password", json={"token": new, "password": NEW_PASSWORD}
+        ).status_code
+        == 200
+    )
 
 
-@pytest.mark.parametrize("purpose,endpoint", [
-    ("verify_email", "/auth/verify-email"), ("reset_password", "/auth/reset-password"),
-])
+@pytest.mark.parametrize(
+    "purpose,endpoint",
+    [
+        ("verify_email", "/auth/verify-email"),
+        ("reset_password", "/auth/reset-password"),
+    ],
+)
 def test_expired_email_tokens(client, mailbox, app, purpose, endpoint):
     register(client)
     if purpose == "reset_password":
@@ -151,16 +176,29 @@ def test_new_jwt_lifetime_is_twelve_hours(client, mailbox, app):
 def test_token_purposes_cannot_be_swapped(client, mailbox):
     register(client)
     verify = token_from_email(mailbox)
-    assert client.post("/auth/reset-password", json={"token": verify, "password": NEW_PASSWORD}).status_code == 400
+    assert (
+        client.post(
+            "/auth/reset-password", json={"token": verify, "password": NEW_PASSWORD}
+        ).status_code
+        == 400
+    )
     client.post("/auth/forgot-password", json={"email": EMAIL})
     reset = token_from_email(mailbox)
     assert client.post("/auth/verify-email", json={"token": reset}).status_code == 400
 
 
-@pytest.mark.parametrize("payload", [None, [], {}, {"email": "bad", "password": PASSWORD},
-    {"email": EMAIL, "password": "short"}, {"email": EMAIL, "password": 123},
-    {"email": EMAIL, "password": "x" * 129},
-])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        None,
+        [],
+        {},
+        {"email": "bad", "password": PASSWORD},
+        {"email": EMAIL, "password": "short"},
+        {"email": EMAIL, "password": 123},
+        {"email": EMAIL, "password": "x" * 129},
+    ],
+)
 def test_register_rejects_invalid_inputs(client, payload):
     assert client.post("/auth/register", json=payload).status_code in (400, 415)
 
@@ -181,6 +219,7 @@ def test_unknown_user_and_wrong_password_have_same_response(client, mailbox):
 def test_mail_failure_rolls_back_registration(client, monkeypatch, app):
     def fail(*args):
         raise OSError("Delivery unavailable")
+
     monkeypatch.setattr("src.api.auth.service.send_email", fail)
     assert register(client).status_code == 503
     with app.app_context():
@@ -192,9 +231,13 @@ def test_concurrent_reset_consumes_token_once(client, mailbox, app):
     verified_user(client, mailbox)
     client.post("/auth/forgot-password", json={"email": EMAIL})
     token = token_from_email(mailbox)
+
     def reset(_):
         with app.test_client() as thread_client:
-            return thread_client.post("/auth/reset-password", json={"token": token, "password": NEW_PASSWORD}).status_code
+            return thread_client.post(
+                "/auth/reset-password", json={"token": token, "password": NEW_PASSWORD}
+            ).status_code
+
     with ThreadPoolExecutor(max_workers=2) as executor:
         assert sorted(executor.map(reset, range(2))) == [200, 400]
 
@@ -202,14 +245,19 @@ def test_concurrent_reset_consumes_token_once(client, mailbox, app):
 def test_reset_mail_failure_does_not_disclose_account(client, mailbox, monkeypatch, app):
     verified_user(client, mailbox)
     missing = client.post("/auth/forgot-password", json={"email": "missing@example.com"})
+
     def fail(*args):
         raise OSError("Delivery unavailable")
+
     monkeypatch.setattr("src.api.auth.service.send_email", fail)
     failed = client.post("/auth/forgot-password", json={"email": EMAIL})
     assert failed.status_code == missing.status_code == 202
     assert failed.json == missing.json
     with app.app_context():
-        assert db.session.scalar(select(AuthToken).where(AuthToken.purpose == "reset_password")) is None
+        assert (
+            db.session.scalar(select(AuthToken).where(AuthToken.purpose == "reset_password"))
+            is None
+        )
 
 
 def test_file_email_contains_usable_verification_token(client, app, monkeypatch, tmp_path):
@@ -224,4 +272,9 @@ def test_file_email_contains_usable_verification_token(client, app, monkeypatch,
 
 def test_forged_email_token(client):
     assert client.post("/auth/verify-email", json={"token": "not-a-real-token"}).status_code == 400
-    assert client.post("/auth/reset-password", json={"token": "not-a-real-token", "password": NEW_PASSWORD}).status_code == 400
+    assert (
+        client.post(
+            "/auth/reset-password", json={"token": "not-a-real-token", "password": NEW_PASSWORD}
+        ).status_code
+        == 400
+    )

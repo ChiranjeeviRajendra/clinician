@@ -20,7 +20,7 @@ export function useProfileEditor() {
     if (pending.value || !state.profile.value) return
     pending.value = true
     try {
-      if (!await state.save(profileChanges(form, state.profile.value))) {
+      if (!(await state.save(profileChanges(form, state.profile.value)))) {
         if (state.error.value) notifications.error(state.error.value)
         return
       }

@@ -1,6 +1,7 @@
 """Create the configured database without changing existing databases."""
-from pathlib import Path
+
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
@@ -24,13 +25,18 @@ def main():
         raise SystemExit("Use a dedicated application database name.")
     settings = load_config()
     admin_url = make_url(settings["SQLALCHEMY_DATABASE_URI"]).set(database="postgres")
-    engine = create_engine(admin_url, isolation_level="AUTOCOMMIT", pool_pre_ping=True,
-                           connect_args={"connect_timeout": 5})
+    engine = create_engine(
+        admin_url,
+        isolation_level="AUTOCOMMIT",
+        pool_pre_ping=True,
+        connect_args={"connect_timeout": 5},
+    )
     configure_database_engine(engine, settings)
     try:
         with engine.connect() as connection:
-            exists = connection.execute(text("SELECT 1 FROM pg_database WHERE datname = :name"),
-                                        {"name": name}).fetchone()
+            exists = connection.execute(
+                text("SELECT 1 FROM pg_database WHERE datname = :name"), {"name": name}
+            ).fetchone()
             if exists:
                 print("The configured application database already exists; no changes made.")
             else:
@@ -38,8 +44,10 @@ def main():
                 connection.exec_driver_sql("CREATE DATABASE " + quoted_name)
                 print("Created the configured application database.")
     except SQLAlchemyError:
-        raise SystemExit("Database creation failed. Check DATABASE_URL, AWS credentials for IAM mode, "
-                         "and the role's CREATEDB privilege.") from None
+        raise SystemExit(
+            "Database creation failed. Check DATABASE_URL, AWS credentials for IAM mode, "
+            "and the role's CREATEDB privilege."
+        ) from None
     finally:
         engine.dispose()
 

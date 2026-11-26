@@ -20,19 +20,29 @@ export function useLoginForm() {
   const pending = ref(false)
   const success = ref('')
   const { form, fieldError, validate, resetValidation } = useAccountValidation(
-    () => ({ email: email.value, password: password.value, confirmPassword: confirmPassword.value }),
-    () => isRegister.value ? 'register' : 'login',
+    () => ({
+      email: email.value,
+      password: password.value,
+      confirmPassword: confirmPassword.value,
+    }),
+    () => (isRegister.value ? 'register' : 'login'),
   )
 
   const sessionMessage = computed(() => {
     if (isRegister.value) return ''
-    const reason = auth.loginReason || (['expired', 'denied'].includes(route.query.reason) ? route.query.reason : '')
+    const reason =
+      auth.loginReason ||
+      (['expired', 'denied'].includes(route.query.reason) ? route.query.reason : '')
     return LOGIN_MESSAGES[reason] || (route.query.expired ? LOGIN_MESSAGES.expired : '')
   })
 
-  watch(sessionMessage, (message) => {
-    if (message && notifications.notification?.message !== message) notifications.error(message)
-  }, { immediate: true })
+  watch(
+    sessionMessage,
+    (message) => {
+      if (message && notifications.notification?.message !== message) notifications.error(message)
+    },
+    { immediate: true },
+  )
 
   function resetPasswordFields() {
     password.value = ''
@@ -48,7 +58,13 @@ export function useLoginForm() {
     notifications.dismiss()
     success.value = ''
     resetPasswordFields()
-    await router.replace({ name: 'login', query: { ...(register ? { mode: 'register' } : {}), ...(route.query.redirect ? { redirect: route.query.redirect } : {}) } })
+    await router.replace({
+      name: 'login',
+      query: {
+        ...(register ? { mode: 'register' } : {}),
+        ...(route.query.redirect ? { redirect: route.query.redirect } : {}),
+      },
+    })
   }
 
   async function submit() {
@@ -76,7 +92,17 @@ export function useLoginForm() {
   }
 
   return {
-    isRegister, email, password, confirmPassword, showPassword, showConfirmPassword,
-    pending, success, form, fieldError, setMode, submit,
+    isRegister,
+    email,
+    password,
+    confirmPassword,
+    showPassword,
+    showConfirmPassword,
+    pending,
+    success,
+    form,
+    fieldError,
+    setMode,
+    submit,
   }
 }

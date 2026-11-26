@@ -133,18 +133,24 @@ Any component or composable can use `useNotificationsStore()` from
 src/
 |-- assets/main.css       Shared responsive styles
 |-- components/          Branding and account navigation
-|-- pages/               Login, account recovery, and chat screens
+|-- composables/         Forms, chat state, profile loading, and request errors
+|-- pages/               Page templates and composition
 |-- router/              Routes and authentication guards
-|-- services/            JSON HTTP client and API contracts
-`-- stores/auth.js       Tab-scoped session storage and authenticated state
+|-- services/            HTTP contracts, cancellation, and tab storage access
+|-- stores/              Shared authenticated state and notifications
+`-- utils/               Pure profile formatting and change detection
 ```
 
 ## Verify and build
 
 ```powershell
-npm test
-npm run build
+npm run check
 ```
+
+`check` runs Oxlint, ESLint, Prettier's formatting check, unit tests, and the
+production build. Each command also runs separately with `npm run lint`,
+`npm run format:check`, `npm test`, or `npm run build`. Checks do not edit source.
+Use `npm run lint-fix` and `npm run format` to apply lint fixes and formatting.
 
 Tests use Node's built-in test runner and mock the HTTP boundary to verify API
 payloads, failures, timeouts, JWT authentication before user-info/page loading, user information cached per session,

@@ -49,10 +49,21 @@ test('invalid login input focuses the first invalid field and shows its error in
   const login = mock.method(authApi, 'login', async () => {})
   const state = await mountLogin(context)
   let focused
-  state.form.value = { elements: { namedItem: (field) => ({ focus: () => { focused = field } }) } }
+  state.form.value = {
+    elements: {
+      namedItem: (field) => ({
+        focus: () => {
+          focused = field
+        },
+      }),
+    },
+  }
   await state.submit()
   assert.equal(focused, 'email')
-  assert.deepEqual(state.notifications.notification, { type: 'error', message: 'Enter your email address.' })
+  assert.deepEqual(state.notifications.notification, {
+    type: 'error',
+    message: 'Enter your email address.',
+  })
   assert.equal(state.fieldError('email'), 'Enter your email address.')
   state.email.value = 'doctor@example.com'
   await state.submit()
@@ -68,7 +79,10 @@ test('registration password mismatches use the popup and prevent the request', a
   state.password.value = 'a-long-password'
   state.confirmPassword.value = 'different-password'
   await state.submit()
-  assert.deepEqual(state.notifications.notification, { type: 'error', message: 'Passwords do not match.' })
+  assert.deepEqual(state.notifications.notification, {
+    type: 'error',
+    message: 'Passwords do not match.',
+  })
   assert.equal(register.mock.callCount(), 0)
 })
 
@@ -78,8 +92,13 @@ for (const [operation, status, code, message] of [
   ['register', 409, 'email_in_use', 'An account with this email already exists.'],
 ]) {
   test(`${code} appears in the global popup with the exact server message`, async (context) => {
-    mock.method(authApi, operation, async () => { throw new ApiError(message, status, code) })
-    const state = await mountLogin(context, operation === 'register' ? '/login?mode=register' : '/login')
+    mock.method(authApi, operation, async () => {
+      throw new ApiError(message, status, code)
+    })
+    const state = await mountLogin(
+      context,
+      operation === 'register' ? '/login?mode=register' : '/login',
+    )
     state.email.value = 'doctor@example.com'
     state.password.value = 'a-long-password'
     state.confirmPassword.value = 'a-long-password'
@@ -132,7 +151,10 @@ test('successful registration keeps verification instructions and switches back 
   state.password.value = 'a-long-password'
   state.confirmPassword.value = 'a-long-password'
   await state.submit()
-  assert.deepEqual(register.mock.calls[0].arguments[0], { email: 'doctor@example.com', password: 'a-long-password' })
+  assert.deepEqual(register.mock.calls[0].arguments[0], {
+    email: 'doctor@example.com',
+    password: 'a-long-password',
+  })
   assert.equal(state.isRegister.value, false)
   assert.match(state.success.value, /We sent a verification link to doctor@example.com/)
   assert.equal(state.notifications.notification, null)
@@ -140,7 +162,8 @@ test('successful registration keeps verification instructions and switches back 
 
 test('successful login still follows a protected return destination', async (context) => {
   mock.method(authApi, 'login', async () => ({
-    user: { email: 'doctor@example.com' }, session_token: 'signed-jwt',
+    user: { email: 'doctor@example.com' },
+    session_token: 'signed-jwt',
     expires_at: new Date(Date.now() + 3600000).toISOString(),
   }))
   const state = await mountLogin(context, '/login?redirect=%2Fchat%3Fview%3Drecent%23latest')

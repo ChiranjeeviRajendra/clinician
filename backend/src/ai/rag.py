@@ -1,21 +1,25 @@
 """Build and cache the existing retrieval-augmented generation pipeline."""
+
 from functools import lru_cache
 
-from .embeddings import download_hugging_face_embeddings
+from .embeddings import create_embeddings
 from .prompts import SYSTEM_PROMPT
 
 
 @lru_cache(maxsize=1)
 def get_rag_chain():
-    from langchain_pinecone import PineconeVectorStore
-    from langchain_openai import OpenAI
     from langchain_classic.chains import create_retrieval_chain
     from langchain_classic.chains.combine_documents import create_stuff_documents_chain
     from langchain_core.prompts import ChatPromptTemplate
+    from langchain_openai import OpenAI
+    from langchain_pinecone import PineconeVectorStore
 
-    embeddings = download_hugging_face_embeddings()
-    docsearch = PineconeVectorStore.from_existing_index(index_name="clinician", embedding=embeddings)
-    retriever = docsearch.as_retriever(search_type="similarity", search_kwargs={"k": 3})
-    llm = OpenAI(model="gpt-4o-mini", temperature=0.4, max_tokens=500)
+    embeddings = create_embeddings()
+    vector_store = PineconeVectorStore.from_existing_index(
+        index_name="clinician", embedding=embeddings
+    )
+    retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+    language_model = OpenAI(model="gpt-4o-mini", temperature=0.4, max_tokens=500)
     prompt = ChatPromptTemplate.from_messages([("system", SYSTEM_PROMPT), ("human", "{input}")])
-    return create_retrieval_chain(retriever, create_stuff_documents_chain(llm, prompt))
+    document_chain = create_stuff_documents_chain(language_model, prompt)
+    return create_retrieval_chain(retriever, document_chain)
