@@ -10,11 +10,16 @@
         <p>A thoughtful space to explore medical knowledge, one conversation at a time.</p>
         <div class="reference-card" aria-hidden="true">
           <span class="reference-icon">✳</span>
-          <div><strong>Knowledge, with context.</strong><p>Answers grounded in your reference library.</p></div>
+          <div>
+            <strong>Knowledge, with context.</strong>
+            <p>Answers grounded in your reference library.</p>
+          </div>
           <span class="reference-arrow">↗</span>
         </div>
       </div>
-      <div class="story-footer"><span>BUILT FOR CURIOUS MINDS</span><span>01 / CLINICIAN</span></div>
+      <div class="story-footer">
+        <span>BUILT FOR CURIOUS MINDS</span><span>01 / CLINICIAN</span>
+      </div>
       <div class="story-orbit" aria-hidden="true"></div>
     </aside>
 
@@ -22,46 +27,141 @@
       <div class="auth-form-wrap">
         <span class="eyebrow muted">YOUR NEXT QUESTION STARTS HERE</span>
         <h2 id="auth-heading">{{ isRegister ? 'Make room for curiosity.' : 'Welcome back.' }}</h2>
-        <p class="form-intro">{{ isRegister ? 'Create your account and start exploring.' : 'Sign in to pick up the conversation.' }}</p>
+        <p class="form-intro">
+          {{
+            isRegister
+              ? 'Create your account and start exploring.'
+              : 'Sign in to pick up the conversation.'
+          }}
+        </p>
         <div class="auth-tabs" aria-label="Account access">
-          <button :class="{ active: !isRegister }" :aria-pressed="!isRegister" :disabled="pending" @click="setMode(false)">Sign in</button>
-          <button :class="{ active: isRegister }" :aria-pressed="isRegister" :disabled="pending" @click="setMode(true)">Create account</button>
+          <button
+            :class="{ active: !isRegister }"
+            :aria-pressed="!isRegister"
+            :disabled="pending"
+            @click="setMode(false)"
+          >
+            Sign in
+          </button>
+          <button
+            :class="{ active: isRegister }"
+            :aria-pressed="isRegister"
+            :disabled="pending"
+            @click="setMode(true)"
+          >
+            Create account
+          </button>
         </div>
 
         <div v-if="success" class="notice success" role="status">
-          <strong>Check your inbox.</strong><p>{{ success }}</p>
+          <strong>Check your inbox.</strong>
+          <p>{{ success }}</p>
         </div>
 
         <form ref="form" class="form-stack" novalidate @submit.prevent="submit">
           <div class="field">
             <label for="email">Email address</label>
-            <input id="email" v-model.trim="email" name="email" type="email" autocomplete="email" placeholder="you@example.com" maxlength="254" required :disabled="pending" :aria-invalid="Boolean(fieldError('email'))" />
+            <input
+              id="email"
+              v-model.trim="email"
+              name="email"
+              type="email"
+              autocomplete="email"
+              placeholder="you@example.com"
+              maxlength="254"
+              required
+              :disabled="pending"
+              :aria-invalid="Boolean(fieldError('email'))"
+            />
           </div>
           <div class="field">
             <div class="field-heading">
               <label for="password">Password</label>
-              <RouterLink v-if="!isRegister" to="/forgot-password" class="small-link">Forgot password?</RouterLink>
+              <RouterLink v-if="!isRegister" to="/forgot-password" class="small-link"
+                >Forgot password?</RouterLink
+              >
             </div>
             <div class="password-input">
-              <input id="password" v-model="password" name="password" :type="showPassword ? 'text' : 'password'" :autocomplete="isRegister ? 'new-password' : 'current-password'" :placeholder="isRegister ? 'At least 8 characters' : 'Enter your password'" :minlength="isRegister ? 8 : 1" maxlength="128" required :disabled="pending" :aria-invalid="Boolean(fieldError('password'))" :aria-describedby="isRegister ? 'password-hint' : undefined" />
-              <button type="button" :aria-label="showPassword ? 'Hide password' : 'Show password'" :aria-pressed="showPassword" :disabled="pending" @click="showPassword = !showPassword">{{ showPassword ? 'Hide' : 'Show' }}</button>
+              <input
+                id="password"
+                v-model="password"
+                name="password"
+                :type="showPassword ? 'text' : 'password'"
+                :autocomplete="isRegister ? 'new-password' : 'current-password'"
+                :placeholder="isRegister ? 'At least 8 characters' : 'Enter your password'"
+                :minlength="isRegister ? 8 : 1"
+                maxlength="128"
+                required
+                :disabled="pending"
+                :aria-invalid="Boolean(fieldError('password'))"
+                :aria-describedby="isRegister ? 'password-hint' : undefined"
+              />
+              <button
+                type="button"
+                :aria-label="showPassword ? 'Hide password' : 'Show password'"
+                :aria-pressed="showPassword"
+                :disabled="pending"
+                @click="showPassword = !showPassword"
+              >
+                {{ showPassword ? 'Hide' : 'Show' }}
+              </button>
             </div>
-            <small v-if="isRegister" id="password-hint">Use 8–128 characters. You’ll verify your email before signing in.</small>
+            <small v-if="isRegister" id="password-hint"
+              >Use 8–128 characters. You’ll verify your email before signing in.</small
+            >
           </div>
           <div v-if="isRegister" class="field">
             <label for="confirm-password">Confirm password</label>
             <div class="password-input">
-              <input id="confirm-password" v-model="confirmPassword" name="confirmPassword" :type="showConfirmPassword ? 'text' : 'password'" autocomplete="new-password" placeholder="Re-enter your password" maxlength="128" required :disabled="pending" :aria-invalid="Boolean(fieldError('confirmPassword'))" />
-              <button type="button" :aria-label="showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'" :aria-pressed="showConfirmPassword" :disabled="pending" @click="showConfirmPassword = !showConfirmPassword">{{ showConfirmPassword ? 'Hide' : 'Show' }}</button>
+              <input
+                id="confirm-password"
+                v-model="confirmPassword"
+                name="confirmPassword"
+                :type="showConfirmPassword ? 'text' : 'password'"
+                autocomplete="new-password"
+                placeholder="Re-enter your password"
+                maxlength="128"
+                required
+                :disabled="pending"
+                :aria-invalid="Boolean(fieldError('confirmPassword'))"
+              />
+              <button
+                type="button"
+                :aria-label="
+                  showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'
+                "
+                :aria-pressed="showConfirmPassword"
+                :disabled="pending"
+                @click="showConfirmPassword = !showConfirmPassword"
+              >
+                {{ showConfirmPassword ? 'Hide' : 'Show' }}
+              </button>
             </div>
           </div>
           <button class="primary-button" type="submit" :disabled="pending">
-            <span>{{ pending ? (isRegister ? 'Creating account…' : 'Signing in…') : (isRegister ? 'Create your account' : 'Sign in') }}</span>
-            <span v-if="!pending" aria-hidden="true">→</span><span v-else class="spinner" aria-hidden="true"></span>
+            <span>{{
+              pending
+                ? isRegister
+                  ? 'Creating account…'
+                  : 'Signing in…'
+                : isRegister
+                  ? 'Create your account'
+                  : 'Sign in'
+            }}</span>
+            <span v-if="!pending" aria-hidden="true">→</span
+            ><span v-else class="spinner" aria-hidden="true"></span>
           </button>
         </form>
-        <p class="auth-switch">{{ isRegister ? 'Already have an account?' : 'New to Clinician?' }} <button class="inline-button" :disabled="pending" @click="setMode(!isRegister)">{{ isRegister ? 'Sign in' : 'Create an account' }} <span aria-hidden="true">↗</span></button></p>
-        <div class="form-footnote"><span class="tiny-cross" aria-hidden="true">+</span> A focused space for informed questions.</div>
+        <p class="auth-switch">
+          {{ isRegister ? 'Already have an account?' : 'New to Clinician?' }}
+          <button class="inline-button" :disabled="pending" @click="setMode(!isRegister)">
+            {{ isRegister ? 'Sign in' : 'Create an account' }} <span aria-hidden="true">↗</span>
+          </button>
+        </p>
+        <div class="form-footnote">
+          <span class="tiny-cross" aria-hidden="true">+</span> A focused space for informed
+          questions.
+        </div>
       </div>
       <span class="auth-copyright">CLINICIAN · MEDICAL KNOWLEDGE, MADE CLEARER</span>
     </section>
@@ -75,7 +175,17 @@ import { useLoginForm } from '../composables/useLoginForm.js'
 defineOptions({ name: 'AccountLoginPage' })
 
 const {
-  isRegister, email, password, confirmPassword, showPassword, showConfirmPassword,
-  pending, success, form, fieldError, setMode, submit,
+  isRegister,
+  email,
+  password,
+  confirmPassword,
+  showPassword,
+  showConfirmPassword,
+  pending,
+  success,
+  form,
+  fieldError,
+  setMode,
+  submit,
 } = useLoginForm()
 </script>

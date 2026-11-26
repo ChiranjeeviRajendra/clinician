@@ -1,28 +1,16 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
 import { profileApi } from '../services/profile.js'
 import { useAuthStore } from '../stores/auth.js'
-import { loginLocation } from '../router/session.js'
+import { useRequestError } from './useRequestError.js'
 
 export function useUserProfile({ includeOptions = false } = {}) {
   const auth = useAuthStore()
-  const route = useRoute()
-  const router = useRouter()
   const profile = ref(null)
   const options = ref({ ethnicities: [] })
   const loading = ref(true)
   const saving = ref(false)
-  const error = ref('')
   const controller = new AbortController()
-
-  async function handleError(failure) {
-    if (controller.signal.aborted || failure.code === 'request_cancelled') return
-    if (failure.status === 401) {
-      await router.replace(loginLocation(auth, route.fullPath, failure.code === 'session_expired' ? 'expired' : 'denied'))
-    } else {
-      error.value = failure.message
-    }
-  }
+  const { error, handleError } = useRequestError(controller.signal)
 
   async function load() {
     loading.value = true
@@ -51,7 +39,9 @@ export function useUserProfile({ includeOptions = false } = {}) {
     error.value = ''
     try {
       const token = auth.sessionToken
-      const response = await profileApi.updateUserProfile(changes, token, { signal: controller.signal })
+      const response = await profileApi.updateUserProfile(changes, token, {
+        signal: controller.signal,
+      })
       if (controller.signal.aborted) return false
       profile.value = response.profile
       auth.setProfileName(response.profile.full_name, token)

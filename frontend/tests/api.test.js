@@ -12,6 +12,16 @@ afterEach(() => {
   mock.restoreAll()
 })
 
+test('an error with a null JSON body retains its HTTP status', async () => {
+  mock.method(globalThis, 'fetch', async () => Response.json(null, { status: 401 }))
+  await assert.rejects(apiRequest('/protected'), (error) => {
+    assert.ok(error instanceof ApiError)
+    assert.equal(error.status, 401)
+    assert.equal(error.message, 'Something went wrong. Please try again.')
+    return true
+  })
+})
+
 test('authenticate sends the JWT and preserves server expiry', async () => {
   const result = { status: 'valid', expires_at: '2026-12-01T00:00:00+00:00' }
   const fetchMock = mock.method(globalThis, 'fetch', async () => Response.json(result))
@@ -22,15 +32,27 @@ test('authenticate sends the JWT and preserves server expiry', async () => {
   assert.equal(options.cache, 'no-store')
 })
 
-for (const [status, code] of [['invalid', 'unauthorized'], ['expired', 'session_expired']]) {
+for (const [status, code] of [
+  ['invalid', 'unauthorized'],
+  ['expired', 'session_expired'],
+]) {
   test(`authenticate exposes the ${status} token reason to route guards`, async () => {
-    mock.method(globalThis, 'fetch', async () => Response.json({ status, error: { code, message: status } }, { status: 401 }))
-    await assert.rejects(authApi.authenticate('jwt'), (error) => error.status === 401 && error.code === code)
+    mock.method(globalThis, 'fetch', async () =>
+      Response.json({ status, error: { code, message: status } }, { status: 401 }),
+    )
+    await assert.rejects(
+      authApi.authenticate('jwt'),
+      (error) => error.status === 401 && error.code === code,
+    )
   })
 }
 
 test('userInfo checks the saved bearer token without caching the result', async () => {
-  const info = { email: 'doctor@example.com', email_verified: true, expires_at: '2026-12-01T00:00:00+00:00' }
+  const info = {
+    email: 'doctor@example.com',
+    email_verified: true,
+    expires_at: '2026-12-01T00:00:00+00:00',
+  }
   const fetchMock = mock.method(globalThis, 'fetch', async () => Response.json(info))
   assert.deepEqual(await userApi.info('saved-token'), info)
   const [url, options] = fetchMock.mock.calls[0].arguments
@@ -41,7 +63,9 @@ test('userInfo checks the saved bearer token without caching the result', async 
 })
 
 test('JSON requests include the bearer credential and use the API proxy', async () => {
-  const fetchMock = mock.method(globalThis, 'fetch', async () => Response.json({ answer: 'Reference answer.' }))
+  const fetchMock = mock.method(globalThis, 'fetch', async () =>
+    Response.json({ answer: 'Reference answer.' }),
+  )
   const response = await sendMessage('A question', 'test-token')
   assert.equal(response.answer, 'Reference answer.')
   const [url, options] = fetchMock.mock.calls[0].arguments
@@ -53,14 +77,22 @@ test('JSON requests include the bearer credential and use the API proxy', async 
 })
 
 test('server validation errors preserve their code, status, and message', async () => {
-  mock.method(globalThis, 'fetch', async () => Response.json({ error: { code: 'email_in_use', message: 'Email already exists.' } }, { status: 409 }))
-  await assert.rejects(authApi.register({ email: 'test@example.com', password: 'a-test-password' }), (error) => {
-    assert.ok(error instanceof ApiError)
-    assert.equal(error.status, 409)
-    assert.equal(error.code, 'email_in_use')
-    assert.equal(error.message, 'Email already exists.')
-    return true
-  })
+  mock.method(globalThis, 'fetch', async () =>
+    Response.json(
+      { error: { code: 'email_in_use', message: 'Email already exists.' } },
+      { status: 409 },
+    ),
+  )
+  await assert.rejects(
+    authApi.register({ email: 'test@example.com', password: 'a-test-password' }),
+    (error) => {
+      assert.ok(error instanceof ApiError)
+      assert.equal(error.status, 409)
+      assert.equal(error.code, 'email_in_use')
+      assert.equal(error.message, 'Email already exists.')
+      return true
+    },
+  )
 })
 
 for (const [code, message] of [
@@ -68,13 +100,18 @@ for (const [code, message] of [
   ['invalid_email', 'Enter a valid email address.'],
 ]) {
   test(`the UI receives the exact server ${code} message`, async () => {
-    mock.method(globalThis, 'fetch', async () => Response.json({ error: { code, message } }, { status: 400 }))
-    await assert.rejects(authApi.register({ email: 'doctor@example.com', password: '12345678' }), (error) => {
-      assert.equal(error.status, 400)
-      assert.equal(error.code, code)
-      assert.equal(error.message, message)
-      return true
-    })
+    mock.method(globalThis, 'fetch', async () =>
+      Response.json({ error: { code, message } }, { status: 400 }),
+    )
+    await assert.rejects(
+      authApi.register({ email: 'doctor@example.com', password: '12345678' }),
+      (error) => {
+        assert.equal(error.status, 400)
+        assert.equal(error.code, code)
+        assert.equal(error.message, message)
+        return true
+      },
+    )
   })
 }
 
@@ -89,23 +126,47 @@ test('HTML responses are rejected instead of being mistaken for an API result', 
 })
 
 test('network failures return a readable error', async () => {
-  mock.method(globalThis, 'fetch', async () => { throw new TypeError('Failed to fetch') })
-  await assert.rejects(apiRequest('/auth/login'), (error) => error.code === 'network_error' && error.message.includes('Unable to reach'))
+  mock.method(globalThis, 'fetch', async () => {
+    throw new TypeError('Failed to fetch')
+  })
+  await assert.rejects(
+    apiRequest('/auth/login'),
+    (error) => error.code === 'network_error' && error.message.includes('Unable to reach'),
+  )
 })
 
 test('slow requests abort and clear their timeout', async () => {
-  mock.method(globalThis, 'fetch', (_url, options) => new Promise((_resolve, reject) => {
-    options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
-  }))
-  await assert.rejects(apiRequest('/chat', { timeout: 5 }), (error) => error.code === 'request_timeout')
+  mock.method(
+    globalThis,
+    'fetch',
+    (_url, options) =>
+      new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () =>
+          reject(new DOMException('Aborted', 'AbortError')),
+        )
+      }),
+  )
+  await assert.rejects(
+    apiRequest('/chat', { timeout: 5 }),
+    (error) => error.code === 'request_timeout',
+  )
 })
 
 test('an external cancellation aborts userInfo without reporting a timeout', async () => {
   let requestSignal
-  mock.method(globalThis, 'fetch', (_url, options) => new Promise((_resolve, reject) => {
-    requestSignal = options.signal
-    options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
-  }))
+  mock.method(
+    globalThis,
+    'fetch',
+    (_url, options) =>
+      new Promise((_resolve, reject) => {
+        requestSignal = options.signal
+        options.signal.addEventListener(
+          'abort',
+          () => reject(new DOMException('Aborted', 'AbortError')),
+          { once: true },
+        )
+      }),
+  )
   const controller = new AbortController()
   const request = userApi.info('saved-token', { signal: controller.signal })
   controller.abort()
@@ -117,16 +178,28 @@ test('a signal canceled before the request skips fetch entirely', async () => {
   const fetchMock = mock.method(globalThis, 'fetch', async () => Response.json({}))
   const controller = new AbortController()
   controller.abort()
-  await assert.rejects(userApi.info('saved-token', { signal: controller.signal }), (error) => error.code === 'request_cancelled')
+  await assert.rejects(
+    userApi.info('saved-token', { signal: controller.signal }),
+    (error) => error.code === 'request_cancelled',
+  )
   assert.equal(fetchMock.mock.callCount(), 0)
 })
 
 test('navigation cancels an outstanding chat request', async () => {
   let requestSignal
-  mock.method(globalThis, 'fetch', (_url, options) => new Promise((_resolve, reject) => {
-    requestSignal = options.signal
-    options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
-  }))
+  mock.method(
+    globalThis,
+    'fetch',
+    (_url, options) =>
+      new Promise((_resolve, reject) => {
+        requestSignal = options.signal
+        options.signal.addEventListener(
+          'abort',
+          () => reject(new DOMException('Aborted', 'AbortError')),
+          { once: true },
+        )
+      }),
+  )
   const request = sendMessage('A question', 'saved-token')
   cancelRouteRequests()
   await assert.rejects(request, (error) => error.code === 'request_cancelled')
@@ -137,9 +210,14 @@ test('cancellation while reading a response remains a cancellation error', async
   mock.method(globalThis, 'fetch', async (_url, options) => ({
     status: 200,
     ok: true,
-    json: () => new Promise((_resolve, reject) => {
-      options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
-    }),
+    json: () =>
+      new Promise((_resolve, reject) => {
+        options.signal.addEventListener(
+          'abort',
+          () => reject(new DOMException('Aborted', 'AbortError')),
+          { once: true },
+        )
+      }),
   }))
   const controller = new AbortController()
   const request = userApi.info('saved-token', { signal: controller.signal })
@@ -151,10 +229,15 @@ test('cancellation while reading a response remains a cancellation error', async
 test('page navigation does not abort an account operation', async () => {
   let resolveRequest
   let requestSignal
-  mock.method(globalThis, 'fetch', (_url, options) => new Promise((resolve) => {
-    requestSignal = options.signal
-    resolveRequest = resolve
-  }))
+  mock.method(
+    globalThis,
+    'fetch',
+    (_url, options) =>
+      new Promise((resolve) => {
+        requestSignal = options.signal
+        resolveRequest = resolve
+      }),
+  )
   const request = authApi.logout('saved-token')
   cancelRouteRequests()
   assert.equal(requestSignal.aborted, false)
@@ -168,8 +251,17 @@ test('account recovery requests match the backend contracts', async () => {
   await authApi.verifyEmail('verify-token')
   await authApi.forgotPassword('test@example.com')
   await authApi.resetPassword('reset-token', 'new-password')
-  assert.deepEqual(fetchMock.mock.calls.map((call) => call.arguments[0]), [
-    '/api/auth/login', '/api/auth/verify-email', '/api/auth/forgot-password', '/api/auth/reset-password',
-  ])
-  assert.deepEqual(JSON.parse(fetchMock.mock.calls[3].arguments[1].body), { token: 'reset-token', password: 'new-password' })
+  assert.deepEqual(
+    fetchMock.mock.calls.map((call) => call.arguments[0]),
+    [
+      '/api/auth/login',
+      '/api/auth/verify-email',
+      '/api/auth/forgot-password',
+      '/api/auth/reset-password',
+    ],
+  )
+  assert.deepEqual(JSON.parse(fetchMock.mock.calls[3].arguments[1].body), {
+    token: 'reset-token',
+    password: 'new-password',
+  })
 })

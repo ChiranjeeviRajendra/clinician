@@ -1,4 +1,5 @@
 """Database connection authentication shared by Flask and setup commands."""
+
 from pathlib import Path
 from threading import Lock
 
@@ -13,8 +14,14 @@ def configure_database_engine(engine, config):
         raise ValueError("DATABASE_AUTH_MODE must be password or iam.")
     if mode == "password":
         return
-    if engine.url.drivername != "postgresql+psycopg" or not engine.url.host or not engine.url.username:
-        raise ValueError("IAM DATABASE_URL must specify a PostgreSQL psycopg hostname and username.")
+    if (
+        engine.url.drivername != "postgresql+psycopg"
+        or not engine.url.host
+        or not engine.url.username
+    ):
+        raise ValueError(
+            "IAM DATABASE_URL must specify a PostgreSQL psycopg hostname and username."
+        )
 
     root_cert = config.get("DATABASE_SSL_ROOT_CERT")
     if root_cert:
@@ -41,8 +48,10 @@ def configure_database_engine(engine, config):
                 if client is None:
                     client = boto3.Session().client("rds", region_name=config.get("AWS_REGION"))
             params["password"] = client.generate_db_auth_token(
-                DBHostname=params["host"], Port=int(params.get("port", 5432)),
-                DBUsername=params["user"], Region=client.meta.region_name,
+                DBHostname=params["host"],
+                Port=int(params.get("port", 5432)),
+                DBUsername=params["user"],
+                Region=client.meta.region_name,
             )
         except (BotoCoreError, ClientError) as error:
             # Credential-provider errors must follow the same safe 503 path as

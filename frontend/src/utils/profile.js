@@ -6,7 +6,10 @@ export function formatDateOfBirth(value, locale) {
   const date = new Date(`${value}T00:00:00Z`)
   if (Number.isNaN(date.getTime())) return 'Not added'
   return new Intl.DateTimeFormat(locale, {
-    year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'UTC',
   }).format(date)
 }
 
@@ -25,9 +28,12 @@ export function profileForm(profile) {
 
 export function profileChanges(form, profile) {
   // Send only edits so a progressive save preserves the other saved details.
-  return Object.fromEntries(fields.flatMap((field) => {
-    const input = typeof form[field] === 'string' ? form[field].trim() : form[field]
-    const value = input === '' || input == null ? null : numericFields.has(field) ? Number(input) : input
-    return value === (profile[field] ?? null) ? [] : [[field, value]]
-  }))
+  return Object.fromEntries(
+    fields.flatMap((field) => {
+      const input = typeof form[field] === 'string' ? form[field].trim() : form[field]
+      const value =
+        input === '' || input == null ? null : numericFields.has(field) ? Number(input) : input
+      return value === (profile[field] ?? null) ? [] : [[field, value]]
+    }),
+  )
 }

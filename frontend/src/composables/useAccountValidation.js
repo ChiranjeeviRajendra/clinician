@@ -6,8 +6,10 @@ export function validateAccountFields({ email = '', password = '', confirmPasswo
   if (mode !== 'reset') {
     const address = email.trim()
     if (!address) errors.email = 'Enter your email address.'
-    else if (Array.from(address).length > 254) errors.email = 'Email must contain no more than 254 characters.'
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) errors.email = 'Enter a valid email address.'
+    else if (Array.from(address).length > 254)
+      errors.email = 'Email must contain no more than 254 characters.'
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address))
+      errors.email = 'Enter a valid email address.'
   }
   if (mode !== 'forgot') {
     const minimum = mode === 'login' ? 1 : 8

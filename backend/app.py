@@ -1,4 +1,5 @@
 """Flask CLI and development server entry point."""
+
 from src.api import create_app
 
 app = create_app()

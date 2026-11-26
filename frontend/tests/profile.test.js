@@ -11,11 +11,24 @@ import { useNotificationsStore } from '../src/stores/notifications.js'
 import { profileApi } from '../src/services/profile.js'
 import { ApiError } from '../src/services/http.js'
 import { cancelRouteRequests } from '../src/services/route-requests.js'
-import { PROFILE_GENDERS, formatDateOfBirth, genderLabel, profileChanges, profileForm } from '../src/utils/profile.js'
+import {
+  PROFILE_GENDERS,
+  formatDateOfBirth,
+  genderLabel,
+  profileChanges,
+  profileForm,
+} from '../src/utils/profile.js'
 
 const profile = {
-  id: 'current-user', full_name: 'Asha Patel', date_of_birth: '1996-01-15', gender: 2,
-  height_cm: 170.25, weight_kg: 65.5, ethnicity: 11, ethnicity_name: 'South Asian', isProfileCompleted: true,
+  id: 'current-user',
+  full_name: 'Asha Patel',
+  date_of_birth: '1996-01-15',
+  gender: 2,
+  height_cm: 170.25,
+  weight_kg: 65.5,
+  ethnicity: 11,
+  ethnicity_name: 'South Asian',
+  isProfileCompleted: true,
 }
 
 afterEach(() => {
@@ -35,7 +48,14 @@ test('profile fetch sends the session token and reads only user information', as
 })
 
 for (const [method, key, choices] of [
-  ['getEthnicities', 'ethnicities', [{ id: 11, name: 'South Asian' }, { id: 16, name: 'Prefer not to say' }]],
+  [
+    'getEthnicities',
+    'ethnicities',
+    [
+      { id: 11, name: 'South Asian' },
+      { id: 16, name: 'Prefer not to say' },
+    ],
+  ],
 ]) {
   test(`${method} fetches dropdown choices from its dedicated endpoint`, async () => {
     const response = { [key]: choices }
@@ -47,7 +67,10 @@ for (const [method, key, choices] of [
     assert.equal(options.headers.Authorization, 'Bearer signed-jwt')
     const controller = new AbortController()
     controller.abort()
-    await assert.rejects(profileApi[method]('jwt', { signal: controller.signal }), (error) => error.code === 'request_cancelled')
+    await assert.rejects(
+      profileApi[method]('jwt', { signal: controller.signal }),
+      (error) => error.code === 'request_cancelled',
+    )
     assert.equal(request.mock.callCount(), 1)
   })
 }
@@ -85,37 +108,52 @@ async function mountProfile(context, options, setup) {
 test('saving a completed profile navigates to profile and shows the global success message', async (context) => {
   mock.method(profileApi, 'getUserProfile', async () => ({ profile }))
   mock.method(profileApi, 'getEthnicities', async () => ({ ethnicities: [] }))
-  const update = mock.method(profileApi, 'updateUserProfile', async () => ({ profile: { ...profile, full_name: 'Asha Rao' } }))
+  const update = mock.method(profileApi, 'updateUserProfile', async () => ({
+    profile: { ...profile, full_name: 'Asha Rao' },
+  }))
   const state = await mountProfile(context, undefined, useProfileEditor)
   state.form.full_name = 'Asha Rao'
   await state.submit()
   assert.deepEqual(update.mock.calls[0].arguments[0], { full_name: 'Asha Rao' })
   assert.equal(state.router.currentRoute.value.name, 'profile')
-  assert.deepEqual(useNotificationsStore().notification, { type: 'success', message: 'Profile saved. Your profile is complete.' })
+  assert.deepEqual(useNotificationsStore().notification, {
+    type: 'success',
+    message: 'Profile saved. Your profile is complete.',
+  })
   assert.equal(state.pending.value, false)
 })
 
 test('saving a partial profile returns to profile with a confirmation that more details can be added', async (context) => {
   mock.method(profileApi, 'getUserProfile', async () => ({ profile }))
   mock.method(profileApi, 'getEthnicities', async () => ({ ethnicities: [] }))
-  mock.method(profileApi, 'updateUserProfile', async () => ({ profile: { ...profile, date_of_birth: null, isProfileCompleted: false } }))
+  mock.method(profileApi, 'updateUserProfile', async () => ({
+    profile: { ...profile, date_of_birth: null, isProfileCompleted: false },
+  }))
   const state = await mountProfile(context, undefined, useProfileEditor)
   state.form.date_of_birth = ''
   await state.submit()
   assert.equal(state.router.currentRoute.value.name, 'profile')
-  assert.equal(useNotificationsStore().notification.message, 'Profile saved. You can add more details anytime.')
+  assert.equal(
+    useNotificationsStore().notification.message,
+    'Profile saved. You can add more details anytime.',
+  )
 })
 
 test('a failed profile save stays on the form and shows an error popup without losing edits', async (context) => {
   mock.method(profileApi, 'getUserProfile', async () => ({ profile }))
   mock.method(profileApi, 'getEthnicities', async () => ({ ethnicities: [] }))
-  mock.method(profileApi, 'updateUserProfile', async () => { throw new ApiError('Unable to save your profile.', 503) })
+  mock.method(profileApi, 'updateUserProfile', async () => {
+    throw new ApiError('Unable to save your profile.', 503)
+  })
   const state = await mountProfile(context, undefined, useProfileEditor)
   state.form.full_name = 'Unsaved name'
   await state.submit()
   assert.equal(state.router.currentRoute.value.name, 'update-profile')
   assert.equal(state.form.full_name, 'Unsaved name')
-  assert.deepEqual(useNotificationsStore().notification, { type: 'error', message: 'Unable to save your profile.' })
+  assert.deepEqual(useNotificationsStore().notification, {
+    type: 'error',
+    message: 'Unable to save your profile.',
+  })
   assert.equal(state.pending.value, false)
 })
 
@@ -125,7 +163,12 @@ test('the form prevents repeated saves during navigation and starts the notifica
   const update = mock.method(profileApi, 'updateUserProfile', async () => ({ profile }))
   const state = await mountProfile(context, undefined, useProfileEditor)
   let finishNavigation
-  state.router.beforeEach(() => new Promise((resolve) => { finishNavigation = resolve }))
+  state.router.beforeEach(
+    () =>
+      new Promise((resolve) => {
+        finishNavigation = resolve
+      }),
+  )
   const submission = state.submit()
   await new Promise((resolve) => setImmediate(resolve))
   assert.equal(state.pending.value, true)
@@ -153,7 +196,9 @@ test('the profile summary loads user information without requesting dropdown cho
 test('saving or clearing the full name updates the shared account display immediately', async (context) => {
   mock.method(profileApi, 'getUserProfile', async () => ({ profile }))
   const state = await mountProfile(context)
-  const update = mock.method(profileApi, 'updateUserProfile', async () => ({ profile: { ...profile, full_name: 'Asha Rao' } }))
+  const update = mock.method(profileApi, 'updateUserProfile', async () => ({
+    profile: { ...profile, full_name: 'Asha Rao' },
+  }))
   assert.equal(await state.save({ full_name: 'Asha Rao' }), true)
   assert.equal(useAuthStore().displayName, 'Asha Rao')
   update.mock.mockImplementation(async () => ({ profile: { ...profile, full_name: null } }))
@@ -164,7 +209,14 @@ test('saving or clearing the full name updates the shared account display immedi
 test('the update form waits for the ethnicity request before displaying saved details', async (context) => {
   let finishEthnicities
   mock.method(profileApi, 'getUserProfile', async () => ({ profile }))
-  mock.method(profileApi, 'getEthnicities', () => new Promise((resolve) => { finishEthnicities = resolve }))
+  mock.method(
+    profileApi,
+    'getEthnicities',
+    () =>
+      new Promise((resolve) => {
+        finishEthnicities = resolve
+      }),
+  )
   const state = await mountProfile(context, { includeOptions: true })
   assert.equal(state.loading.value, true)
   assert.equal(state.profile.value, null)
@@ -177,12 +229,16 @@ test('the update form waits for the ethnicity request before displaying saved de
 
 test('a failed dropdown request leaves the form unloaded and can be retried', async (context) => {
   mock.method(profileApi, 'getUserProfile', async () => ({ profile }))
-  const ethnicities = mock.method(profileApi, 'getEthnicities', async () => { throw new Error('Choices unavailable') })
+  const ethnicities = mock.method(profileApi, 'getEthnicities', async () => {
+    throw new Error('Choices unavailable')
+  })
   const state = await mountProfile(context, { includeOptions: true })
   assert.equal(state.profile.value, null)
   assert.equal(state.loading.value, false)
   assert.equal(state.error.value, 'Choices unavailable')
-  ethnicities.mock.mockImplementation(async () => ({ ethnicities: [{ id: 11, name: 'South Asian' }] }))
+  ethnicities.mock.mockImplementation(async () => ({
+    ethnicities: [{ id: 11, name: 'South Asian' }],
+  }))
   await state.load()
   assert.equal(state.error.value, '')
   assert.deepEqual(state.profile.value, profile)
@@ -190,7 +246,10 @@ test('a failed dropdown request leaves the form unloaded and can be retried', as
 })
 
 test('gender choices are defined in the UI with numeric IDs and readable labels', () => {
-  assert.deepEqual(PROFILE_GENDERS, [{ id: 1, name: 'Male' }, { id: 2, name: 'Female' }])
+  assert.deepEqual(PROFILE_GENDERS, [
+    { id: 1, name: 'Male' },
+    { id: 2, name: 'Female' },
+  ])
   assert.equal(genderLabel(1), 'Male')
   assert.equal(genderLabel(2), 'Female')
   assert.equal(genderLabel(null), 'Not added')
@@ -234,7 +293,12 @@ test('clearing optional details sends null and does not send identity or complet
   form.date_of_birth = ''
   form.height_cm = ''
   form.ethnicity = ''
-  assert.deepEqual(profileChanges(form, profile), { full_name: null, date_of_birth: null, height_cm: null, ethnicity: null })
+  assert.deepEqual(profileChanges(form, profile), {
+    full_name: null,
+    date_of_birth: null,
+    height_cm: null,
+    ethnicity: null,
+  })
 })
 
 test('measurements stay numeric while birth dates remain date-only strings', () => {
@@ -251,7 +315,12 @@ test('birth dates display as calendar dates without a timezone shift', () => {
 })
 
 test('profile updates show backend validation errors and can be cancelled on navigation', async () => {
-  mock.method(globalThis, 'fetch', async () => Response.json({ error: { code: 'invalid_input', message: 'Choose a listed ethnicity or leave it blank.' } }, { status: 400 }))
+  mock.method(globalThis, 'fetch', async () =>
+    Response.json(
+      { error: { code: 'invalid_input', message: 'Choose a listed ethnicity or leave it blank.' } },
+      { status: 400 },
+    ),
+  )
   await assert.rejects(profileApi.updateUserProfile({ ethnicity: 'invalid' }, 'jwt'), (error) => {
     assert.equal(error.status, 400)
     assert.equal(error.message, 'Choose a listed ethnicity or leave it blank.')
@@ -259,5 +328,8 @@ test('profile updates show backend validation errors and can be cancelled on nav
   })
   const controller = new AbortController()
   controller.abort()
-  await assert.rejects(profileApi.getUserProfile('jwt', { signal: controller.signal }), (error) => error.code === 'request_cancelled')
+  await assert.rejects(
+    profileApi.getUserProfile('jwt', { signal: controller.signal }),
+    (error) => error.code === 'request_cancelled',
+  )
 })

@@ -1,5 +1,7 @@
 sentence-transformers
-langchain
+langchain-classic
+langchain-core
+langchain-text-splitters
 flask
 Flask-SQLAlchemy>=3.1,<4
 Flask-Migrate>=4.1,<5
@@ -15,5 +17,4 @@ pinecone[grpc]
 langchain-pinecone
 langchain_community
 langchain_openai
-langchain_experimental
 -e .

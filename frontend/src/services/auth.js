@@ -10,6 +10,8 @@ export const authApi = {
   me: (token) => accountRequest('/auth/me', { token }),
   logout: (token) => accountRequest('/auth/logout', { method: 'POST', token }),
   verifyEmail: (token) => accountRequest('/auth/verify-email', { method: 'POST', body: { token } }),
-  forgotPassword: (email) => accountRequest('/auth/forgot-password', { method: 'POST', body: { email } }),
-  resetPassword: (token, password) => accountRequest('/auth/reset-password', { method: 'POST', body: { token, password } }),
+  forgotPassword: (email) =>
+    accountRequest('/auth/forgot-password', { method: 'POST', body: { email } }),
+  resetPassword: (token, password) =>
+    accountRequest('/auth/reset-password', { method: 'POST', body: { token, password } }),
 }
